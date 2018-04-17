@@ -18,7 +18,7 @@
 
 #include <wiringPiI2C.h>
 
-#define DELAY_US 1000
+#define DELAY_US 100
 
 using namespace std;
 
@@ -374,7 +374,7 @@ int main()
 	temp += "x=&*\n";
 	*/
 	signal(SIGALRM, alarmWakeup);
-    	ualarm(100000, 100000);
+    	ualarm(500000, 500000);
 
     while(1)
     {
@@ -386,7 +386,7 @@ int main()
             break;
         }
 	if(recv_message[0] == '@' && recv_message[1] == '#'){
-		//RamerDouglasPeucker(v, 0.05, v);
+		RamerDouglasPeucker(v, 0.03, v);
 		string temp = "@#";
 		temp += "n" + to_string(v.size());
 		write_server(client, temp.c_str(), temp.length());
