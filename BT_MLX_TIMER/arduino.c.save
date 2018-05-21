@@ -40,9 +40,30 @@ void write_server(int client, const char *message, int length);
 
 #define Left_Thermo 0x5A
 #define Right_Thermo 0x5B
+#define Arduino 42
 
+//Thermo Command
 #define MLX90614_TA             0x06
 #define MLX90614_TOBJ1          0x07
+
+//Arduino Command
+#define GET_ENCODER		0x01
+#define GO_FRONT		0x02
+#define GO_BACK			0x04
+#define	STOP			0x08
+#define	OPEN_VALVE		0x10
+#define CLOSE_VALVE		0x20
+
+#define ERROR			0xFFFF
+
+#define CONTROL_PERIOD		0.1
+
+//System info
+#define WHEEL_RADIUS		0.035
+#define GEAR_RATIO		22.0
+#define PPR			13.0
+
+#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*pi*WHEEL_RADIUS/CONTROL_PERIOD
 
 char input[1024] = { 0 };
 
@@ -50,6 +71,9 @@ int connected = 0;
 
 int leftThermo;
 int rightThermo;
+int arduino;
+
+int encoder;
 
 vector<Point > v;
 double step = 0.0;
@@ -61,18 +85,24 @@ int main()
 {
         leftThermo = wiringPiI2CSetup(Left_Thermo); /*Initializes I2C with device Address*/
         rightThermo = wiringPiI2CSetup(Right_Thermo); /*Initializes I2C with device Address*/
+	arduino = wiringPiI2CSetup(Arduino);
 
         if(leftThermo < 0 || rightThermo < 0){
           printf("i2c connect failed\n");
           return 1;
         }
 
+	if(arduino < 0){
+		printf("arduino connect failed\n");
+		return 1;
+	}
+
 	int sock;
 
         int client = init_server(sock);
 
         signal(SIGALRM, alarmWakeup);
-        ualarm(500000, 500000);
+        ualarm(CONTROL_PERIOD * 1000000, CONTROL_PERIOD * 1000000);
 
         while(1)
         {
@@ -142,6 +172,8 @@ void alarmWakeup(int sig_num)
                 left_temp = read_raw_data(leftThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
 		usleep(100);
                 right_temp = read_raw_data(rightThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
+
+		encoder = read_raw_data(arduino, GET_ENCODER);
 
 
                 printf("left : %g\tright : %g\n", left_temp, right_temp);

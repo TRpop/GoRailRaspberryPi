@@ -12,7 +12,7 @@
 #define MLX90614_TOBJ1 		0x07
 
 #define Device_Address 0x5A	/*Device Address/Identifier for MPU6050*/
-
+#define Device2 0x5B
 int fd;
 
 short read_raw_data(int addr){

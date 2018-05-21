@@ -88,8 +88,7 @@ int main( int argc, char **argv )
  // 시리얼 포트를 연다
  // 시리얼포트를 1초동안 대기하거나 32바이트 이상의 데이타가 들어오면
  // 깨어나도록 설정한다.
-	printf("asdf\n");
-     fd = open_serial( dev_name, baud, 10, 32 );
+     fd = open_serial( dev_name, baud, 1, 1);
      if ( fd < 0 ) return -2;
 	printf("opened");
      for ( cc='A'; cc<='z'; cc++ )
