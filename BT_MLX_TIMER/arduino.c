@@ -27,6 +27,10 @@ using namespace std;
 
 typedef pair<double, double> Point;
 
+enum CarState {MOVING, STOPED, STATE_ERROR};
+enum SystemState {OPERATING = 1, HEADING_FRONT = 2, HEADING_BACK = 4, NOT_OPERATING = 8};
+
+//////////////////////////////Functions//////////////////////////////
 void alarmWakeup(int sig_num);
 string make_string(int, int, vector<Point >&);
 double PerpendicularDistance(const Point &pt, const Point &lineStart, const Point &lineEnd);
@@ -37,34 +41,40 @@ sdp_session_t *register_service(uint8_t rfcomm_channel);
 int init_server(int& client);
 char *read_server(int client);
 void write_server(int client, const char *message, int length);
+CarState decodeState(short state);
+double decodeDelta(int Encoded);
+//////////////////////////////////////////////////////////////////////
 
-#define Left_Thermo 0x5A
-#define Right_Thermo 0x5B
-#define Arduino 42
+#define Left_Thermo     0x5A
+#define Right_Thermo    0x5B
+#define Arduino         42
 
-//Thermo Command
-#define MLX90614_TA             0x06
-#define MLX90614_TOBJ1          0x07
+//////Thermo Command//////////////
+#define MLX90614_TA     0x06
+#define MLX90614_TOBJ1  0x07
 
-//Arduino Command
-#define GET_ENCODER		0x01
-#define GO_FRONT		0x02
-#define GO_BACK			0x04
-#define	STOP			0x08
-#define	OPEN_VALVE		0x10
-#define CLOSE_VALVE		0x20
+//////Arduino Command////////////
+#define GET_ENCODER     0x01
+#define GO_FRONT        0x02
+#define GO_BACK         0x04
+#define STOP            0x08
+#define OPEN_VALVE      0x10
+#define CLOSE_VALVE     0x20
+#define GET_STATE       0x40
+#define SET_DELTA       0xF0
 
-#define ERROR			0xFFFF
+#define ERROR           0xFFFF
 
-#define CONTROL_PERIOD		0.1
+#define CONTROL_PERIOD  0.1
 
-//System info
-#define WHEEL_RADIUS		0.035
-#define GEAR_RATIO		22.0
-#define PPR			13.0
+///////System info///////////////
+#define WHEEL_RADIUS    0.035
+#define GEAR_RATIO      22.0
+#define PPR             13.0
 
 //#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*pi*WHEEL_RADIUS/CONTROL_PERIOD
 
+////////////////Global Variable////////////////
 char input[1024] = { 0 };
 
 int connected = 0;
@@ -78,26 +88,34 @@ int encoder;
 vector<Point > v;
 double step = 0.0;
 
+double targetDistance = 0.0;
+int deltaEncoded = 0;
+double delta = 0.0;
+
 bdaddr_t bdaddr_any = {0, 0, 0, 0, 0, 0};
 bdaddr_t bdaddr_local = {0, 0, 0, 0xff, 0xff, 0xff};
+
+CarState carState = STOPED;
+SystemState systemState = NOT_OPERATING;
+////////////////////////////////////////////////////
 
 int main()
 {
         leftThermo = wiringPiI2CSetup(Left_Thermo); /*Initializes I2C with device Address*/
         rightThermo = wiringPiI2CSetup(Right_Thermo); /*Initializes I2C with device Address*/
-	arduino = wiringPiI2CSetup(Arduino);
+        arduino = wiringPiI2CSetup(Arduino);
 
-        if(leftThermo < 0 || rightThermo < 0){
-          printf("i2c connect failed\n");
-          return 1;
+        if(leftThermo < 0 || rightThermo < 0) {
+                printf("i2c connect failed\n");
+                return 1;
         }
 
-	if(arduino < 0){
-		printf("arduino connect failed\n");
-		return 1;
-	}
+        if(arduino < 0) {
+                printf("arduino connect failed\n");
+                return 1;
+        }
 
-	int sock;
+        int sock;
 
         int client = init_server(sock);
 
@@ -111,53 +129,81 @@ int main()
                 if ( recv_message == NULL ) {
                         //if(input == NULL)
                         printf("client disconnected\n");
-			usleep(1000000);
+                        usleep(1000000);
 
-			int port = 3, result, client, bytes_read, bytes_sent;
-        		struct sockaddr_rc loc_addr = { 0 }, rem_addr = { 0 };
-        		char buffer[1024] = { 0 };
-        		socklen_t opt = sizeof(rem_addr);
+                        int port = 3, result, client, bytes_read, bytes_sent;
+                        struct sockaddr_rc loc_addr = { 0 }, rem_addr = { 0 };
+                        char buffer[1024] = { 0 };
+                        socklen_t opt = sizeof(rem_addr);
 
-			sock = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
-        		printf("socket() returned %d\n", sock);
-
-
-			loc_addr.rc_family = AF_BLUETOOTH;
-        		loc_addr.rc_bdaddr = bdaddr_any;
-        		loc_addr.rc_channel = (uint8_t) port;
+                        sock = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
+                        printf("socket() returned %d\n", sock);
 
 
-			//const int t = 1;
-			//setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(int));
-			//bdaddr_any = {0, 0, 0, 0, 0, 0};
-			//shutdown(sock, SHUT_RDWR);
-			close(sock);
+                        loc_addr.rc_family = AF_BLUETOOTH;
+                        loc_addr.rc_bdaddr = bdaddr_any;
+                        loc_addr.rc_channel = (uint8_t) port;
+
+
+                        //const int t = 1;
+                        //setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(int));
+                        //bdaddr_any = {0, 0, 0, 0, 0, 0};
+                        //shutdown(sock, SHUT_RDWR);
+                        close(sock);
                         //client = init_server(sock);
 
-			client = accept(sock, (struct sockaddr *)&rem_addr, &opt);
-        		printf("accept() returned %d\n", client);
+                        client = accept(sock, (struct sockaddr *)&rem_addr, &opt);
+                        printf("accept() returned %d\n", client);
 
-        		ba2str(&rem_addr.rc_bdaddr, buffer);
-        		fprintf(stderr, "accepted connection from %s\n", buffer);
-        		memset(buffer, 0, sizeof(buffer));
+                        ba2str(&rem_addr.rc_bdaddr, buffer);
+                        fprintf(stderr, "accepted connection from %s\n", buffer);
+                        memset(buffer, 0, sizeof(buffer));
 
 
-                }
-                if(recv_message[0] == '@' && recv_message[1] == '#') {
-                        RamerDouglasPeucker(v, 0.03, v);
-                        string recv(recv_message);
-                        cout << recv << endl;
-                        string temp = "@#";
-                        temp += "n" + to_string(v.size());
-                        write_server(client, temp.c_str(), temp.length());
-                        usleep(DELAY_US);
-                        for(int i = 0; temp.find("&*") == string::npos; i++) {
-                                temp = make_string(i*50, (i+1)*50, v);
-                                write_server(client, temp.c_str(), temp.length());
-                                usleep(DELAY_US);
-                        }
                 }else{
-                        write_server(client, recv_message, 10);
+                        string recv(recv_message);
+
+                        if(recv.find("@#", 0) != std::string::npos) {
+                                if(recv.find("g", 0) != std::string::npos) { //graph
+
+                                        RamerDouglasPeucker(v, 0.03, v);
+                                        string temp = "@#";
+                                        temp += "n" + to_string(v.size());
+                                        write_server(client, temp.c_str(), temp.length());
+                                        usleep(DELAY_US);
+
+                                        for(int i = 0; temp.find("&*") == string::npos; i++) {
+                                                temp = make_string(i*50, (i+1)*50, v);
+                                                write_server(client, temp.c_str(), temp.length());
+                                                usleep(DELAY_US);
+                                        }
+
+                                }else if(recv.find("de", 0) != std::string::npos) { //delta
+                                        int st = recv.find("de", 0) + 2;
+                                        int end = recv.find("b", 0);
+
+                                        deltaEncoded = stoi(recv.substr(st, end - st));
+                                        delta = decodeDelta(deltaEncoded);
+
+                                        int i2c_recv;
+
+                                        do {
+                                                i2c_recv = read_raw_data(arduino, delta & SET_DELTA);
+                                                usleep(DELAY_US);
+                                        } while(i2c_recv != delta);
+
+
+                                }else if(recv.find("di", 0) != std::string::npos) { //distance
+                                        int st = recv.find("di", 0) + 2;
+                                        int end = recv.find("b", 0);
+
+                                        targetDistance = stod(recv.substr(st, end - st));
+                                }else if(recv.find("s", 0) != std::string::npos) { //start
+                                        systemState = OPERATING | HEADING_FRONT;
+                                }
+                        }else{
+                                write_server(client, recv_message, 10);
+                        }
                 }
 
                 //write_server(client, recv_message, strlen(recv_message));
@@ -167,36 +213,92 @@ int main()
 void alarmWakeup(int sig_num)
 {
         if(sig_num == SIGALRM) {
-        double left_temp, right_temp;
+                if(systemState & OPERATING == OPERATING) {    //OPERATING
+                        if(systemState & HEADING_FRONT == HEADING_FRONT) {    //HEADING FRONT
 
-		//Data Fetch
-                left_temp = read_raw_data(leftThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
-		usleep(100);
-                right_temp = read_raw_data(rightThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
-		usleep(100);
-		encoder = read_raw_data(arduino, GET_ENCODER);
+                                if(distance >= targetDistance) {  //
+                                        systemState = OPERATING | HEADING_BACK;
+                                }else{
+                                        carState = decodeState(read_raw_data(arduino, GET_STATE));
+                                        usleep(DELAY_US);
+                                        if(carState == STATE_ERROR) { //connection error
+                                                printf("Cannot get car state : arduino connection error\n");
+                                        }else{
+                                                if(carState == STOPED) {  //if car stoped
+                                                        double left_temp, right_temp;
 
-		//refine situation
+                                                        //Data Fetch
+                                                        left_temp = read_raw_data(leftThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
+                                                        usleep(DELAY_US);
+                                                        right_temp = read_raw_data(rightThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
+                                                        usleep(DELAY_US);
+                                                        encoder = read_raw_data(arduino, GET_ENCODER);
+
+                                                        //refine situation
+                                                        refineSituation()
+
+                                                        //////////////////////
+
+                                                        //Command
 
 
-		//////////////////////
-
-		//Command
+                                                        ///////////////
 
 
-		///////////////
+                                                        //Save Data
+                                                        printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
+
+                                                        step += 0.5;
+
+                                                        v.push_back(make_pair(step, (left_temp + right_temp)/2));
+                                                        ///////////////
+
+                                                }else{  //if car is moving
+
+                                                }
+                                        }
+                                }
+
+
+                        }else if(systemState & HEADING_BACK == HEADING_BACK) {  //HEADING BACK, should mark
+                                //TODO Moving Back
+                        }
 
 
 
-		//Save Data
-                printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
 
-		step += 0.5;
 
-                v.push_back(make_pair(step, (left_temp + right_temp)/2));
-		///////////////
+                }else if(systemState & NOT_OPERATING == NOT_OPERATING) {
+
+                }
         }
 
+}
+
+double decodeDelta(int Encoded){
+        switch(Encoded) {
+        case 1:
+                return 0.1;
+        case 2:
+                return 0.5;
+        case 3:
+                return 1.0;
+        case 4:
+                return 2.0;
+        default:
+                return 0;
+        }
+}
+
+State decodeCarState(short state){
+        switch(state) {
+        case 1:
+                return STOPED;
+        case 2:
+                return MOVING;
+        default:
+                return STATE_ERROR;
+        }
 }
 
 string make_string(int from, int to, vector<Point >& vec){
@@ -221,7 +323,7 @@ string make_string(int from, int to, vector<Point >& vec){
                 temp += "xb\n";
         }
 
-       	//temp += "x&*b\n";
+        //temp += "x&*b\n";
 
         return temp;
 }
@@ -514,4 +616,3 @@ void write_server(int client, const char *message, int length) {
                 printf("sent [%s] %d\n", messageArr, bytes_sent);
         }
 }
-
