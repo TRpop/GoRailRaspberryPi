@@ -11,9 +11,6 @@
 
 #include <utility>
 
-#include <wiringPi.h>
-#include <wiringPiI2C.h>
-
 #include <cmath>
 #include <stdexcept>
 
@@ -21,11 +18,21 @@
 
 #include <iostream>
 
+#include <wiringPi.h>
+#include <wiringPiI2C.h>
+#include <wiringSerial.h>
+
+#include "minmea.h"
+
+
 #define DELAY_US 100
 
 using namespace std;
 
 typedef pair<double, double> Point;
+typedef struct{
+	float latitude, longitude, heading, velocity;
+} gps_data_t;
 
 enum CarState {MOVING, STOPED, STATE_ERROR};
 enum SystemState {OPERATING = 1, HEADING_FRONT = 2, HEADING_BACK = 4, NOT_OPERATING = 8};
@@ -43,6 +50,7 @@ char *read_server(int client);
 void write_server(int client, const char *message, int length);
 CarState decodeCarState(short state);
 double decodeDelta(int Encoded);
+void parse(char[], gps_data_t &data);
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -72,8 +80,7 @@ double decodeDelta(int Encoded);
 #define GEAR_RATIO      22.0
 #define PPR             13.0
 
-//#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*3.141592*WHEEL_RADIUS/CONTROL_PERIOD
-#define ENCODER2METER(x)	(x/(GEAR_RATIO * PPR))*2*3.141592*WHELL_RADIUS
+//#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*pi*WHEEL_RADIUS/CONTROL_PERIOD
 
 ////////////////Global Variable////////////////
 char input[1024] = { 0 };
@@ -88,7 +95,7 @@ int encoder;
 
 vector<Point > v;
 double travelDistance = 0.0;
-double step = 0.0;	//temp
+double step = 0.0;  //temp
 
 double targetDistance = 0.0;
 int deltaEncoded = 0;
@@ -103,6 +110,18 @@ SystemState systemState = NOT_OPERATING;
 
 int main()
 {
+        int gps, gpsCounter, i;
+        int flag = 0;
+        char msg[MINMEA_MAX_LENGTH] = {0, };
+        char ch;
+        gps_data_t gps_data;
+
+        gps = serialOpen("/dev/ttyUSB0", 9600);
+        if(gps < 0) {
+                printf("gps connect failed\n");
+                return 1;
+        }
+
         leftThermo = wiringPiI2CSetup(Left_Thermo); /*Initializes I2C with device Address*/
         rightThermo = wiringPiI2CSetup(Right_Thermo); /*Initializes I2C with device Address*/
         arduino = wiringPiI2CSetup(Arduino);
@@ -135,14 +154,14 @@ int main()
 
                         close(client);
 
-			struct sockaddr_rc rem_addr = { 0 };
+                        struct sockaddr_rc rem_addr = { 0 };
 
-			socklen_t opt = sizeof(rem_addr);
+                        socklen_t opt = sizeof(rem_addr);
 
                         client = accept(sock, (struct sockaddr *)&rem_addr, &opt);
-			if(client == -1){
-				continue;
-			}
+                        if(client == -1) {
+                                continue;
+                        }
                         printf("accept() returned %d\n", client);
 
 
@@ -171,16 +190,16 @@ int main()
                                         deltaEncoded = stoi(recv.substr(st, end - st));
                                         delta = decodeDelta(deltaEncoded);
 
-					printf("\ndelta = %g\n", delta);
+                                        printf("\ndelta = %g\n", delta);
 
                                         int i2c_recv;
 
-					/*
-                                        do {
-                                                i2c_recv = read_raw_data(arduino, delta & SET_DELTA);
-                                                usleep(DELAY_US);
-                                        } while(i2c_recv != delta);
-					*/
+                                        /*
+                                                                      do {
+                                                                              i2c_recv = read_raw_data(arduino, delta & SET_DELTA);
+                                                                              usleep(DELAY_US);
+                                                                      } while(i2c_recv != delta);
+                                         */
 
                                 }else if(recv.find("di", 0) != std::string::npos) { //distance
                                         int st = recv.find("di", 0) + 2;
@@ -188,19 +207,40 @@ int main()
 
                                         targetDistance = stod(recv.substr(st, end - st));
 
-					printf("\ntarget distance = %g\n", targetDistance);
+                                        printf("\ntarget distance = %g\n", targetDistance);
 
                                 }else if(recv.find("s", 0) != std::string::npos) { //start
                                         systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);
-                                }else if(recv.find("p", 0) != std::string::npos){
-					systemState = static_cast<SystemState>(NOT_OPERATING);
-				}
+                                }else if(recv.find("p", 0) != std::string::npos) {
+                                        systemState = static_cast<SystemState>(NOT_OPERATING);
+                                }
                         }else{
                                 write_server(client, recv_message, 10);
                         }
                 }
 
                 //write_server(client, recv_message, strlen(recv_message));
+
+                while(serialDataAvail(gps)) {
+                        ch = serialGetchar(gps);
+
+                        if(flag == 0) {
+                                if(ch == '$') {
+                                        flag = 1;
+                                        i = 0;
+                                        msg[i] = ch;
+                                        i++;
+                                }
+                        }else{
+                                msg[i] = ch;
+                                i++;
+                                if(ch == '\n') {
+                                        msg[i] = '\0';
+                                        parse(msg, gps_data);
+                                        flag = 0;
+                                }
+                        }
+                }
         }
 }
 
@@ -219,7 +259,7 @@ void alarmWakeup(int sig_num)
                                                 printf("Cannot get car state : arduino connection error\n");
                                         }else{
                                                 if(carState == STOPED) {  //if car stoped
-                                                        double left_temp, right_temp, moved;
+                                                        double left_temp, right_temp;
 
                                                         //Data Fetch
                                                         left_temp = read_raw_data(leftThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
@@ -227,8 +267,6 @@ void alarmWakeup(int sig_num)
                                                         right_temp = read_raw_data(rightThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
                                                         usleep(DELAY_US);
                                                         encoder = read_raw_data(arduino, GET_ENCODER);
-
-							moved = ENCODER2METER(encoder);
 
                                                         //refine situation
                                                         //refineSituation()
@@ -610,5 +648,125 @@ void write_server(int client, const char *message, int length) {
         bytes_sent = write(client, messageArr, strlen(messageArr));
         if (bytes_sent > 0) {
                 printf("sent [%s] %d\n", messageArr, bytes_sent);
+        }
+}
+
+void parse(char line[], gps_data_t &data){
+        switch (minmea_sentence_id(line, false)) {
+        case MINMEA_SENTENCE_RMC: {
+                struct minmea_sentence_rmc frame;
+                if (minmea_parse_rmc(&frame, line)) {
+                        /*
+                           printf("$xxRMC: raw coordinates and speed: (%d/%d,%d/%d) %d/%d\n",
+                                frame.latitude.value, frame.latitude.scale,
+                                frame.longitude.value, frame.longitude.scale,
+                                frame.speed.value, frame.speed.scale);
+                           printf("$xxRMC fixed-point coordinates and speed scaled to three decimal places: (%d,%d) %d\n",
+                                minmea_rescale(&frame.latitude, 1000),
+                                minmea_rescale(&frame.longitude, 1000),
+                                minmea_rescale(&frame.speed, 1000));
+                         */
+                        printf("$xxRMC floating point degree coordinates and speed: (%f,%f) %f, %f degree\n",
+                               minmea_tocoord(&frame.latitude),
+                               minmea_tocoord(&frame.longitude),
+                               minmea_tofloat(&frame.speed),
+                               minmea_tofloat(&frame.course));
+                }
+                else {
+                        printf("$xxRMC sentence is not parsed\n");
+                }
+        } break;
+        /*
+           case MINMEA_SENTENCE_GGA: {
+                      struct minmea_sentence_gga frame;
+                      if (minmea_parse_gga(&frame, line)) {
+                          printf("$xxGGA: fix quality: %d\n", frame.fix_quality);
+                      }
+                      else {
+                          printf("$xxGGA sentence is not parsed\n");
+                      }
+                  } break;
+         */
+        case MINMEA_SENTENCE_GST: {
+                struct minmea_sentence_gst frame;
+                if (minmea_parse_gst(&frame, line)) {
+                        printf("$xxGST: raw latitude,longitude and altitude error deviation: (%d/%d,%d/%d,%d/%d)\n",
+                               frame.latitude_error_deviation.value, frame.latitude_error_deviation.scale,
+                               frame.longitude_error_deviation.value, frame.longitude_error_deviation.scale,
+                               frame.altitude_error_deviation.value, frame.altitude_error_deviation.scale);
+                        printf("$xxGST fixed point latitude,longitude and altitude error deviation"
+                               " scaled to one decimal place: (%d,%d,%d)\n",
+                               minmea_rescale(&frame.latitude_error_deviation, 10),
+                               minmea_rescale(&frame.longitude_error_deviation, 10),
+                               minmea_rescale(&frame.altitude_error_deviation, 10));
+                        printf("$xxGST floating point degree latitude, longitude and altitude error deviation: (%f,%f,%f)",
+                               minmea_tofloat(&frame.latitude_error_deviation),
+                               minmea_tofloat(&frame.longitude_error_deviation),
+                               minmea_tofloat(&frame.altitude_error_deviation));
+                }
+                else {
+                        printf("$xxGST sentence is not parsed\n");
+                }
+        } break;
+        /*
+           case MINMEA_SENTENCE_GSV: {
+                      struct minmea_sentence_gsv frame;
+                      if (minmea_parse_gsv(&frame, line)) {
+                          printf("$xxGSV: message %d of %d\n", frame.msg_nr, frame.total_msgs);
+                          printf("$xxGSV: sattelites in view: %d\n", frame.total_sats);
+                          for (int i = 0; i < 4; i++)
+                              printf("$xxGSV: sat nr %d, elevation: %d, azimuth: %d, snr: %d dbm\n",
+                                  frame.sats[i].nr,
+                                  frame.sats[i].elevation,
+                                  frame.sats[i].azimuth,
+                                  frame.sats[i].snr);
+                      }
+                      else {
+                          printf("$xxGSV sentence is not parsed\n");
+                      }
+                  } break;
+         */
+        case MINMEA_SENTENCE_VTG: {
+                struct minmea_sentence_vtg frame;
+                if (minmea_parse_vtg(&frame, line)) {
+                        printf("$xxVTG: true track degrees = %f\n",
+                               minmea_tofloat(&frame.true_track_degrees));
+                        printf("        magnetic track degrees = %f\n",
+                               minmea_tofloat(&frame.magnetic_track_degrees));
+                        printf("        speed knots = %f\n",
+                               minmea_tofloat(&frame.speed_knots));
+                        printf("        speed kph = %f\n",
+                               minmea_tofloat(&frame.speed_kph));
+                }
+                else {
+                        printf("$xxVTG sentence is not parsed\n");
+                }
+        } break;
+        /*
+           case MINMEA_SENTENCE_ZDA: {
+                      struct minmea_sentence_zda frame;
+                      if (minmea_parse_zda(&frame, line)) {
+                          printf("$xxZDA: %d:%d:%d %02d.%02d.%d UTC%+03d:%02d\n",
+                                 frame.time.hours,
+                                 frame.time.minutes,
+                                 frame.time.seconds,
+                                 frame.date.day,
+                                 frame.date.month,
+                                 frame.date.year,
+                                 frame.hour_offset,
+                                 frame.minute_offset);
+                      }
+                      else {
+                          printf("$xxZDA sentence is not parsed\n");
+                      }
+                  } break;
+         */
+        case MINMEA_INVALID: {
+                printf("$xxxxx sentence is not valid\n");
+        } break;
+
+        default: {
+                //printf("$xxxxx sentence is not parsed\n");
+        } break;
         }
 }
