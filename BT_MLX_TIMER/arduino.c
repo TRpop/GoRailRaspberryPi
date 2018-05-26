@@ -41,7 +41,7 @@ sdp_session_t *register_service(uint8_t rfcomm_channel);
 int init_server(int& client);
 char *read_server(int client);
 void write_server(int client, const char *message, int length);
-CarState decodeState(short state);
+CarState decodeCarState(short state);
 double decodeDelta(int Encoded);
 //////////////////////////////////////////////////////////////////////
 
@@ -86,7 +86,8 @@ int arduino;
 int encoder;
 
 vector<Point > v;
-double step = 0.0;
+double travelDistance = 0.0;
+double step = 0.0;	//temp
 
 double targetDistance = 0.0;
 int deltaEncoded = 0;
@@ -131,33 +132,17 @@ int main()
                         printf("client disconnected\n");
                         usleep(1000000);
 
-                        int port = 3, result, client, bytes_read, bytes_sent;
-                        struct sockaddr_rc loc_addr = { 0 }, rem_addr = { 0 };
-                        char buffer[1024] = { 0 };
-                        socklen_t opt = sizeof(rem_addr);
+                        close(client);
 
-                        sock = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
-                        printf("socket() returned %d\n", sock);
+			struct sockaddr_rc rem_addr = { 0 };
 
-
-                        loc_addr.rc_family = AF_BLUETOOTH;
-                        loc_addr.rc_bdaddr = bdaddr_any;
-                        loc_addr.rc_channel = (uint8_t) port;
-
-
-                        //const int t = 1;
-                        //setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(int));
-                        //bdaddr_any = {0, 0, 0, 0, 0, 0};
-                        //shutdown(sock, SHUT_RDWR);
-                        close(sock);
-                        //client = init_server(sock);
+			socklen_t opt = sizeof(rem_addr);
 
                         client = accept(sock, (struct sockaddr *)&rem_addr, &opt);
+			if(client == -1){
+				continue;
+			}
                         printf("accept() returned %d\n", client);
-
-                        ba2str(&rem_addr.rc_bdaddr, buffer);
-                        fprintf(stderr, "accepted connection from %s\n", buffer);
-                        memset(buffer, 0, sizeof(buffer));
 
 
                 }else{
@@ -185,22 +170,30 @@ int main()
                                         deltaEncoded = stoi(recv.substr(st, end - st));
                                         delta = decodeDelta(deltaEncoded);
 
+					printf("\ndelta = %g\n", delta);
+
                                         int i2c_recv;
 
+					/*
                                         do {
                                                 i2c_recv = read_raw_data(arduino, delta & SET_DELTA);
                                                 usleep(DELAY_US);
                                         } while(i2c_recv != delta);
-
+					*/
 
                                 }else if(recv.find("di", 0) != std::string::npos) { //distance
                                         int st = recv.find("di", 0) + 2;
                                         int end = recv.find("b", 0);
 
                                         targetDistance = stod(recv.substr(st, end - st));
+
+					printf("\ntarget distance = %g\n", targetDistance);
+
                                 }else if(recv.find("s", 0) != std::string::npos) { //start
-                                        systemState = OPERATING | HEADING_FRONT;
-                                }
+                                        systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);
+                                }else if(recv.find("p", 0) != std::string::npos){
+					systemState = static_cast<SystemState>(NOT_OPERATING);
+				}
                         }else{
                                 write_server(client, recv_message, 10);
                         }
@@ -216,10 +209,10 @@ void alarmWakeup(int sig_num)
                 if(systemState & OPERATING == OPERATING) {    //OPERATING
                         if(systemState & HEADING_FRONT == HEADING_FRONT) {    //HEADING FRONT
 
-                                if(distance >= targetDistance) {  //
-                                        systemState = OPERATING | HEADING_BACK;
+                                if(travelDistance >= targetDistance) {  //
+                                        systemState = static_cast<SystemState>(OPERATING | HEADING_BACK);
                                 }else{
-                                        carState = decodeState(read_raw_data(arduino, GET_STATE));
+                                        carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
                                         if(carState == STATE_ERROR) { //connection error
                                                 printf("Cannot get car state : arduino connection error\n");
@@ -235,7 +228,7 @@ void alarmWakeup(int sig_num)
                                                         encoder = read_raw_data(arduino, GET_ENCODER);
 
                                                         //refine situation
-                                                        refineSituation()
+                                                        //refineSituation()
 
                                                         //////////////////////
 
@@ -290,7 +283,7 @@ double decodeDelta(int Encoded){
         }
 }
 
-State decodeCarState(short state){
+CarState decodeCarState(short state){
         switch(state) {
         case 1:
                 return STOPED;
