@@ -61,6 +61,7 @@ double decodeDelta(int Encoded);
 void parse(char[], gps_data_t &data);
 //void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY);
 void update_distance(int);
+void update_distance_back(int);
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -206,12 +207,12 @@ int main()
 
                                         int i2c_recv;
 
-                                        /*
+                                        
                                                                       do {
-                                                                              i2c_recv = read_raw_data(arduino, delta & SET_DELTA);
+                                                                              i2c_recv = read_raw_data(arduino, (deltaEncoded | 0xF0));
                                                                               usleep(DELAY_US);
-                                                                      } while(i2c_recv != delta);
-                                         */
+                                                                      } while(i2c_recv != deltaEncoded);
+                                         
 
                                 }else if(recv.find("di", 0) != std::string::npos) { //distance
                                         int st = recv.find("di", 0) + 2;
@@ -331,8 +332,8 @@ void alarmWakeup(int sig_num)
 
                                                         //refine situation
                                                         //refineSituation()
-							travelDistance = travelDistance - ENCODER2METER(encoder);
-
+							//travelDistance = travelDistance - ENCODER2METER(encoder);
+							update_distance_back(encoder);
                                                         //////////////////////
 							///////////////
 
@@ -379,7 +380,6 @@ double decodeDelta(int Encoded){
 }
 
 CarState decodeCarState(short state){
-	printf("%d", state);
         switch(state) {
         case 1:
                 return STOPED;
@@ -875,4 +875,8 @@ lfUtmY = FN + k0*WM + k0*WN*tan(dLat)*(pow(WLA,2)/2 + (5 - WT + 9*WC + 4*pow(WC,
 
 void update_distance(int encoder){
 	travelDistance += ENCODER2METER(encoder);
+}
+
+void update_distance_back(int encoder){
+	travelDistance -= ENCODER2METER(encoder);
 }
