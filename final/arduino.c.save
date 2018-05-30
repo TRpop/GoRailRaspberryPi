@@ -86,12 +86,12 @@ void update_distance(int);
 #define CONTROL_PERIOD  0.1
 
 ///////System info///////////////
-#define WHEELRATIO    	0.035
+#define WHEEL_RADIUS    (double)0.035
 #define GEAR_RATIO      22.0
 #define PPR             13.0
 
 //#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*pi*WHEEL_RADIUS/CONTROL_PERIOD
-#define ENCODER2METER(x) ((double)x/(GEAR_RATIO * PPR))*2*M_PI*WHEELRATIO
+#define ENCODER2METER(x) (x/(GEAR_RATIO * PPR))*2*M_PI*WHEEL_RADIUS
 
 ////////////////Global Variable////////////////
 char input[1024] = { 0 };
@@ -298,11 +298,11 @@ void alarmWakeup(int sig_num)
 
 
                                                         //Save Data
-                                                        printf("left : %g\tright : %g\tdistance : %lf\n", left_temp, right_temp, travelDistance);
+                                                        printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
 
-                                                        //step += 0.5;
+                                                        step += 0.5;
 
-                                                        v.push_back(make_pair(travelDistance, (left_temp + right_temp)/2));
+                                                        v.push_back(make_pair(step, (left_temp + right_temp)/2));
                                                         ///////////////
 
                                                 }else{  //if car is moving
@@ -314,10 +314,8 @@ void alarmWakeup(int sig_num)
 
                         }else if((systemState & HEADING_BACK) == HEADING_BACK) {  //HEADING BACK, should mark
                                 //TODO Moving Back
-				if(travelDistance <= 0) {  //
-                                        systemState = static_cast<SystemState>(NOT_OPERATING);
-					travelDistance = 0;
-					printf("\nSTOPED\n");
+				if(travelDistance >= targetDistance) {  //
+                                        systemState = static_cast<SystemState>(OPERATING | HEADING_BACK);
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -325,13 +323,13 @@ void alarmWakeup(int sig_num)
                                                 printf("Cannot get car state : arduino connection error\n");
                                         }else{
                                                 if(carState == STOPED) {  //if car stoped
+                                                        double left_temp, right_temp;
 
                                                         //Data Fetch
-                                                        int encoder = read_raw_data(arduino, GET_ENCODER);
+                                                        encoder = read_raw_data(arduino, GET_ENCODER);
 
                                                         //refine situation
                                                         //refineSituation()
-							travelDistance = travelDistance - ENCODER2METER(encoder);
 
                                                         //////////////////////
 							///////////////
@@ -339,10 +337,10 @@ void alarmWakeup(int sig_num)
 
                                                         //Save Data
                                                         //printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
-							printf("%lf\n", travelDistance);
-                                                        //step += 0.5;
 
-                                                        //v.push_back(make_pair(step, (left_temp + right_temp)/2));
+                                                        step += 0.5;
+
+                                                        v.push_back(make_pair(step, (left_temp + right_temp)/2));
                                                         ///////////////
 
                                                 }else{  //if car is moving
@@ -379,11 +377,10 @@ double decodeDelta(int Encoded){
 }
 
 CarState decodeCarState(short state){
-	printf("%d", state);
         switch(state) {
-        case 1:
-                return STOPED;
         case 2:
+                return STOPED;
+        case 1:
                 return MOVING;
         default:
                 return STATE_ERROR;
@@ -874,5 +871,5 @@ lfUtmY = FN + k0*WM + k0*WN*tan(dLat)*(pow(WLA,2)/2 + (5 - WT + 9*WC + 4*pow(WC,
 */
 
 void update_distance(int encoder){
-	travelDistance += ENCODER2METER(encoder);
+	distance += ENCODER2METER(encoder);
 }

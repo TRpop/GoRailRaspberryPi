@@ -10,12 +10,13 @@ int flag = 0;
 char msg[MINMEA_MAX_LENGTH] = {0, };
 
 int main(){
-	fd = serialOpen("/dev/ttyACM0", 9600);
+	//fd = serialOpen("/dev/ttyACM0", 9600);
 
 
 	while(1){
-		int ch = serialGetchar(fd);
-
+		//int ch = serialGetchar(fd);
+		char ch;
+		scanf("%c", &ch);
 		if(flag == 0){
 			if(ch == '$'){
 				flag = 1;
