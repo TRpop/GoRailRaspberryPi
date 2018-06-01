@@ -62,7 +62,7 @@ void parse(char[], gps_data_t &data);
 //void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY);
 void update_distance(int);
 void update_distance_back(int);
-Point getmax(vector<Point> , int begin, int end, int &maxIndex);
+Point getmax(vector<Point>, int begin, int end, int &maxIndex);
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -88,12 +88,14 @@ Point getmax(vector<Point> , int begin, int end, int &maxIndex);
 #define CONTROL_PERIOD  0.1
 
 ///////System info///////////////
-#define WHEELRATIO    	0.035
+#define WHEELRATIO      0.035
 #define GEAR_RATIO      22.0
 #define PPR             13.0
 
 //#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*pi*WHEEL_RADIUS/CONTROL_PERIOD
 #define ENCODER2METER(x) ((double)x/(GEAR_RATIO * PPR))*2*M_PI*WHEELRATIO
+
+#define K_SIZE 5
 
 ////////////////Global Variable////////////////
 char input[1024] = { 0 };
@@ -104,7 +106,8 @@ int leftThermo;
 int rightThermo;
 int arduino;
 
-vector<Point > r_save, l_save;
+vector<Point> r_save, l_save;
+vector<Point> r_check, l_check;
 double travelDistance = 0.0;
 double step = 0.0;  //temp
 
@@ -183,12 +186,12 @@ int main()
 
                         if(recv.find("@#", 0) != std::string::npos) {
                                 if(recv.find("g", 0) != std::string::npos) { //graph
-					if(r_save.size() != 0){
-						RamerDouglasPeucker(r_save, 0.03, r_save);
-						RamerDouglasPeucker(l_save, 0.03, l_save);
-					}
+                                        if(r_save.size() != 0) {
+                                                RamerDouglasPeucker(r_save, 0.03, r_save);
+                                                RamerDouglasPeucker(l_save, 0.03, l_save);
+                                        }
                                         string temp = "@#";
-					temp += "r";
+                                        temp += "r";
                                         temp += "n" + to_string(r_save.size());
                                         write_server(client, temp.c_str(), temp.length());
                                         usleep(DELAY_US);
@@ -199,10 +202,12 @@ int main()
                                                 usleep(DELAY_US);
                                         }
 
-					temp = "@#";
-					temp += "l";
-					temp += "n" + to_string(l_save.size());
-					write_server(client, temp.c_str(), temp.length());
+                                        sleep(1);
+
+                                        temp = "@#";
+                                        temp += "l";
+                                        temp += "n" + to_string(l_save.size());
+                                        write_server(client, temp.c_str(), temp.length());
                                         usleep(DELAY_US);
 
                                         for(int i = 0; temp.find("&*") == string::npos; i++) {
@@ -222,12 +227,12 @@ int main()
 
                                         int i2c_recv;
 
-                                        
-                                                                      do {
-                                                                              i2c_recv = read_raw_data(arduino, (deltaEncoded | 0xF0));
-                                                                              usleep(DELAY_US);
-                                                                      } while(i2c_recv != deltaEncoded);
-                                         
+
+                                        do {
+                                                i2c_recv = read_raw_data(arduino, (deltaEncoded | 0xF0));
+                                                usleep(DELAY_US);
+                                        } while(i2c_recv != deltaEncoded);
+
 
                                 }else if(recv.find("di", 0) != std::string::npos) { //distance
                                         int st = recv.find("di", 0) + 2;
@@ -272,7 +277,7 @@ void alarmWakeup(int sig_num)
                                 if(ch == '\n') {
                                         msg[i] = '\0';
                                         parse(msg, gps_data);
-					//WGS2UTM(gps_data.latitude, gps_data.longitude, utm_data.x, utm_data.y);
+                                        //WGS2UTM(gps_data.latitude, gps_data.longitude, utm_data.x, utm_data.y);
                                         flag = 0;
                                 }
                         }
@@ -286,21 +291,37 @@ void alarmWakeup(int sig_num)
                                 if(travelDistance >= targetDistance) {  //
                                         systemState = static_cast<SystemState>(OPERATING | HEADING_BACK);
 
-					int last = 0;
-					v2.push_back(getmax(v, 0, K_SIZE, last));
+                                        int last = 0;
+                                        r_check.push_back(getmax(r_save, 0, K_SIZE, last));
 
-					for(int i = K_SIZE; i < v.size(); i++){
-						if((i - last) < K_SIZE){
-            if(v2.back().second < v.at(i).second){
-                v2.pop_back();
-                v2.push_back(v.at(i));
-                last = i;
-            }
-        }else{
-            v2.push_back(v.at(i));
-            last = i;
-        }
-    }
+                                        for(int i = K_SIZE; i < v.size(); i++) {
+                                                if((i - last) < K_SIZE) {
+                                                        if(r_check.back().second < r_save.at(i).second) {
+                                                                r_check.pop_back();
+                                                                r_check.push_back(v.at(i));
+                                                                last = i;
+                                                        }
+                                                }else{
+                                                        r_check.push_back(v.at(i));
+                                                        last = i;
+                                                }
+                                        }
+
+                                        last = 0;
+                                        l_check.push_back(getmax(l_save, 0, K_SIZE, last));
+
+                                        for(int i = K_SIZE; i < v.size(); i++) {
+                                                if((i - last) < K_SIZE) {
+                                                        if(l_check.back().second < l_save.at(i).second) {
+                                                                l_check.pop_back();
+                                                                l_check.push_back(v.at(i));
+                                                                last = i;
+                                                        }
+                                                }else{
+                                                        l_check.push_back(v.at(i));
+                                                        last = i;
+                                                }
+                                        }
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -319,12 +340,12 @@ void alarmWakeup(int sig_num)
 
                                                         //refine situation, update distance
                                                         //refineSituation()
-							update_distance(encoder);
+                                                        update_distance(encoder);
                                                         //////////////////////
 
                                                         //Command
 
-							while(read_raw_data(arduino, GO_FRONT) != GO_FRONT);
+                                                        while(read_raw_data(arduino, GO_FRONT) != GO_FRONT);
 
                                                         ///////////////
 
@@ -335,7 +356,7 @@ void alarmWakeup(int sig_num)
                                                         //step += 0.5;
 
                                                         r_save.push_back(make_pair(travelDistance, right_temp));
-							l_save.push_back(make_pair(travelDistance, left_temp));
+                                                        l_save.push_back(make_pair(travelDistance, left_temp));
                                                         ///////////////
 
                                                 }else{  //if car is moving
@@ -347,10 +368,10 @@ void alarmWakeup(int sig_num)
 
                         }else if((systemState & HEADING_BACK) == HEADING_BACK) {  //HEADING BACK, should mark
                                 //TODO Moving Back
-				if(travelDistance <= 0) {  //
+                                if(travelDistance <= 0) { //
                                         systemState = static_cast<SystemState>(NOT_OPERATING);
-					travelDistance = 0;
-					printf("\nSTOPED\n");
+                                        travelDistance = 0;
+                                        printf("\nSTOPED\n");
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -364,15 +385,15 @@ void alarmWakeup(int sig_num)
 
                                                         //refine situation
                                                         //refineSituation()
-							//travelDistance = travelDistance - ENCODER2METER(encoder);
-							update_distance_back(encoder);
+                                                        //travelDistance = travelDistance - ENCODER2METER(encoder);
+                                                        update_distance_back(encoder);
                                                         //////////////////////
-							///////////////
+                                                        ///////////////
 
 
                                                         //Save Data
                                                         //printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
-							printf("%lf\n", travelDistance);
+                                                        printf("%lf\n", travelDistance);
                                                         //step += 0.5;
 
                                                         //v.push_back(make_pair(step, (left_temp + right_temp)/2));
@@ -859,72 +880,62 @@ void parse(char line[], gps_data_t &data){
 }
 
 /*
-
-void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY){
-int iUTM_zone;
-
-double dLat, dLon;
-
-// coordinates in radians
-dLat = Latitude*M_PI/180;
-dLon = Longitude*M_PI/180;
-
-// UTM parameters
-double lon0_f = floor(Longitude/6)*6+3; // reference longitude in degrees
-double lon0 = lon0_f*M_PI/180; // in radians
-double k0 = 0.9996; // scale on central meridian
-
-int FE = 500000; // false easting
-int FN = (Latitude < 0)*10000000; // false northing 
-
-// Equations parameters
-// N: radius of curvature of the earth perpendicular to meridian plane
-// Also, distance from point to polar axis
-double WN = Wa/sqrt( 1 - pow(We,2)*pow(sin(dLat),2)); 
-double WT = pow(tan(dLat),2); 
-double WC = (pow(We,2)/(1 - pow(We,2)))*pow(cos(dLat),2);
-double WLA = (dLon - lon0)*cos(dLat); 
-// M: true distance along the central meridian from the equator to lat
-double WM = Wa*((1 - pow(We,2)/4 - 3*pow(We,4)/64 - 5*pow(We,6)/256)*dLat
-- (3*pow(We,2)/8 + 3*pow(We,4)/32 + 45*pow(We,6)/1024)*sin(2*dLat) 
-+ (15*pow(We,4)/256 + 45*pow(We,6)/1024)*sin(4*dLat) - (35*pow(We,6)/3072)*sin(6*dLat));
-
-// easting
-lfUtmX = FE + k0*WN*(WLA + (1 - WT + WC)*pow(WLA,3)/6 + (5 - 18*WT + pow(WT,2) + 72*WC - 58*Weps)*pow(WLA,5)/120);
-
-// northing 
-// M(lat0) = 0 so not used in following formula
-lfUtmY = FN + k0*WM + k0*WN*tan(dLat)*(pow(WLA,2)/2 + (5 - WT + 9*WC + 4*pow(WC,2))*pow(WLA,4)/24
-+ (61 - 58*WT + pow(WT,2) + 600*WC - 330*Weps)*pow(WLA,6)/720);
-
-// UTM zone
-//iZone = (int)(floor(lon0_f/6)+31);
-
-//cout<<"UTM_X : "<<dUTM_X<<" / ";
-//cout<<"UTM_Y : "<<dUTM_Y<<endl;
-}
-*/
+   void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY){
+   int iUTM_zone;
+   double dLat, dLon;
+   // coordinates in radians
+   dLat = Latitude*M_PI/180;
+   dLon = Longitude*M_PI/180;
+   // UTM parameters
+   double lon0_f = floor(Longitude/6)*6+3; // reference longitude in degrees
+   double lon0 = lon0_f*M_PI/180; // in radians
+   double k0 = 0.9996; // scale on central meridian
+   int FE = 500000; // false easting
+   int FN = (Latitude < 0)*10000000; // false northing
+   // Equations parameters
+   // N: radius of curvature of the earth perpendicular to meridian plane
+   // Also, distance from point to polar axis
+   double WN = Wa/sqrt( 1 - pow(We,2)*pow(sin(dLat),2));
+   double WT = pow(tan(dLat),2);
+   double WC = (pow(We,2)/(1 - pow(We,2)))*pow(cos(dLat),2);
+   double WLA = (dLon - lon0)*cos(dLat);
+   // M: true distance along the central meridian from the equator to lat
+   double WM = Wa*((1 - pow(We,2)/4 - 3*pow(We,4)/64 - 5*pow(We,6)/256)*dLat
+   - (3*pow(We,2)/8 + 3*pow(We,4)/32 + 45*pow(We,6)/1024)*sin(2*dLat)
+ + (15*pow(We,4)/256 + 45*pow(We,6)/1024)*sin(4*dLat) - (35*pow(We,6)/3072)*sin(6*dLat));
+   // easting
+   lfUtmX = FE + k0*WN*(WLA + (1 - WT + WC)*pow(WLA,3)/6 + (5 - 18*WT + pow(WT,2) + 72*WC - 58*Weps)*pow(WLA,5)/120);
+   // northing
+   // M(lat0) = 0 so not used in following formula
+   lfUtmY = FN + k0*WM + k0*WN*tan(dLat)*(pow(WLA,2)/2 + (5 - WT + 9*WC + 4*pow(WC,2))*pow(WLA,4)/24
+ + (61 - 58*WT + pow(WT,2) + 600*WC - 330*Weps)*pow(WLA,6)/720);
+   // UTM zone
+   //iZone = (int)(floor(lon0_f/6)+31);
+   //cout<<"UTM_X : "<<dUTM_X<<" / ";
+   //cout<<"UTM_Y : "<<dUTM_Y<<endl;
+   }
+ */
 
 void update_distance(int encoder){
-	travelDistance += ENCODER2METER(encoder);
+        travelDistance += ENCODER2METER(encoder);
 }
 
 void update_distance_back(int encoder){
-	travelDistance -= ENCODER2METER(encoder);
+        travelDistance -= ENCODER2METER(encoder);
 }
 
 Point getmax(vector<Point> vec, int begin, int end, int &maxIndex){
-    vector<Point>::iterator it;
-    double max = -10000;
-    Point maxPoint;
-    int n = 0;
-    for(it = vec.begin() + begin; it != vec.begin() + end; it++, n++){
-        if(max < it->second){
-            max = it->second;
-            maxPoint = *it;
-            maxIndex = begin + n;
+        vector<Point>::iterator it;
+        double max = -10000;
+        Point maxPoint;
+        int n = 0;
+        for(it = vec.begin() + begin; it != vec.begin() + end; it++, n++) {
+                if(max < it->second) {
+                        max = it->second;
+                        maxPoint = *it;
+                        maxIndex = begin + n;
+                }
         }
-    }
-    
-    return maxPoint;
+
+        return maxPoint;
 }
