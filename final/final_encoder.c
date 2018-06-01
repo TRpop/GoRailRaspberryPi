@@ -62,7 +62,6 @@ void parse(char[], gps_data_t &data);
 //void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY);
 void update_distance(int);
 void update_distance_back(int);
-Point getmax(vector<Point> , int begin, int end, int &maxIndex);
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -104,7 +103,7 @@ int leftThermo;
 int rightThermo;
 int arduino;
 
-vector<Point > r_save, l_save;
+vector<Point > v;
 double travelDistance = 0.0;
 double step = 0.0;  //temp
 
@@ -183,30 +182,16 @@ int main()
 
                         if(recv.find("@#", 0) != std::string::npos) {
                                 if(recv.find("g", 0) != std::string::npos) { //graph
-					if(r_save.size() != 0){
-						RamerDouglasPeucker(r_save, 0.03, r_save);
-						RamerDouglasPeucker(l_save, 0.03, l_save);
+					if(v.size() != 0){
+						RamerDouglasPeucker(v, 0.03, v);
 					}
                                         string temp = "@#";
-					temp += "r";
-                                        temp += "n" + to_string(r_save.size());
+                                        temp += "n" + to_string(v.size());
                                         write_server(client, temp.c_str(), temp.length());
                                         usleep(DELAY_US);
 
                                         for(int i = 0; temp.find("&*") == string::npos; i++) {
-                                                temp = make_string(i*50, (i+1)*50, r_save);
-                                                write_server(client, temp.c_str(), temp.length());
-                                                usleep(DELAY_US);
-                                        }
-
-					temp = "@#";
-					temp += "l";
-					temp += "n" + to_string(l_save.size());
-					write_server(client, temp.c_str(), temp.length());
-                                        usleep(DELAY_US);
-
-                                        for(int i = 0; temp.find("&*") == string::npos; i++) {
-                                                temp = make_string(i*50, (i+1)*50, l_save);
+                                                temp = make_string(i*50, (i+1)*50, v);
                                                 write_server(client, temp.c_str(), temp.length());
                                                 usleep(DELAY_US);
                                         }
@@ -285,22 +270,6 @@ void alarmWakeup(int sig_num)
 
                                 if(travelDistance >= targetDistance) {  //
                                         systemState = static_cast<SystemState>(OPERATING | HEADING_BACK);
-
-					int last = 0;
-					v2.push_back(getmax(v, 0, K_SIZE, last));
-
-					for(int i = K_SIZE; i < v.size(); i++){
-						if((i - last) < K_SIZE){
-            if(v2.back().second < v.at(i).second){
-                v2.pop_back();
-                v2.push_back(v.at(i));
-                last = i;
-            }
-        }else{
-            v2.push_back(v.at(i));
-            last = i;
-        }
-    }
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -334,8 +303,7 @@ void alarmWakeup(int sig_num)
 
                                                         //step += 0.5;
 
-                                                        r_save.push_back(make_pair(travelDistance, right_temp));
-							l_save.push_back(make_pair(travelDistance, left_temp));
+                                                        v.push_back(make_pair(travelDistance, (left_temp + right_temp)/2));
                                                         ///////////////
 
                                                 }else{  //if car is moving
@@ -911,20 +879,4 @@ void update_distance(int encoder){
 
 void update_distance_back(int encoder){
 	travelDistance -= ENCODER2METER(encoder);
-}
-
-Point getmax(vector<Point> vec, int begin, int end, int &maxIndex){
-    vector<Point>::iterator it;
-    double max = -10000;
-    Point maxPoint;
-    int n = 0;
-    for(it = vec.begin() + begin; it != vec.begin() + end; it++, n++){
-        if(max < it->second){
-            max = it->second;
-            maxPoint = *it;
-            maxIndex = begin + n;
-        }
-    }
-    
-    return maxPoint;
 }
