@@ -9,7 +9,7 @@
 #include <vector>
 #include <sstream>
 #include <math.h>
-
+#include <algorithm>
 #include <utility>
 
 #include <cmath>
@@ -63,6 +63,9 @@ void parse(char[], gps_data_t &data);
 void update_distance(int);
 void update_distance_back(int);
 Point getmax(vector<Point>, int begin, int end, int &maxIndex);
+void getCheckPoint(vector<Point> &save, vector<Point> &check);
+void sortByFirst(vector<Point> &object);
+void sortBySecond(vector<Point> &object);
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -100,17 +103,14 @@ Point getmax(vector<Point>, int begin, int end, int &maxIndex);
 ////////////////Global Variable////////////////
 char input[1024] = { 0 };
 
-int connected = 0;
-
 int leftThermo;
 int rightThermo;
 int arduino;
 
 vector<Point> r_save, l_save;
 vector<Point> r_check, l_check;
-double travelDistance = 0.0;
-double step = 0.0;  //temp
 
+double travelDistance = 0.0;
 double targetDistance = 0.0;
 int deltaEncoded = 0;
 double delta = 0.0;
@@ -127,6 +127,8 @@ char msg[MINMEA_MAX_LENGTH] = {0, };
 char ch;
 gps_data_t gps_data, old_gps_data;
 utm_data_t utm_data;
+
+int cnt = -1;
 ////////////////////////////////////////////////////
 
 int main()
@@ -291,37 +293,17 @@ void alarmWakeup(int sig_num)
                                 if(travelDistance >= targetDistance) {  //
                                         systemState = static_cast<SystemState>(OPERATING | HEADING_BACK);
 
-                                        int last = 0;
-                                        r_check.push_back(getmax(r_save, 0, K_SIZE, last));
+                                        r_check.clear();
+                                        l_check.clear();
+                                        getCheckPoint(r_save, r_check);
+                                        getCheckPoint(l_save, l_check);
 
-                                        for(int i = K_SIZE; i < v.size(); i++) {
-                                                if((i - last) < K_SIZE) {
-                                                        if(r_check.back().second < r_save.at(i).second) {
-                                                                r_check.pop_back();
-                                                                r_check.push_back(v.at(i));
-                                                                last = i;
-                                                        }
-                                                }else{
-                                                        r_check.push_back(v.at(i));
-                                                        last = i;
-                                                }
-                                        }
-
-                                        last = 0;
-                                        l_check.push_back(getmax(l_save, 0, K_SIZE, last));
-
-                                        for(int i = K_SIZE; i < v.size(); i++) {
-                                                if((i - last) < K_SIZE) {
-                                                        if(l_check.back().second < l_save.at(i).second) {
-                                                                l_check.pop_back();
-                                                                l_check.push_back(v.at(i));
-                                                                last = i;
-                                                        }
-                                                }else{
-                                                        l_check.push_back(v.at(i));
-                                                        last = i;
-                                                }
-                                        }
+                                        sortBySecond(r_check);
+                                        sortBySecond(l_check);
+                                        if(r_check.size() > 10) r_check.resize(10);
+                                        if(l_check.size() > 10) l_check.resize(10);
+                                        sortByFirst(r_check);
+                                        sortByFirst(l_check);
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -345,7 +327,7 @@ void alarmWakeup(int sig_num)
 
                                                         //Command
 
-                                                        while(read_raw_data(arduino, GO_FRONT) != GO_FRONT);
+                                                        while(read_raw_data(arduino, GO_FRONT) != GO_FRONT){usleep(DELAY_US);}
 
                                                         ///////////////
 
@@ -390,6 +372,28 @@ void alarmWakeup(int sig_num)
                                                         //////////////////////
                                                         ///////////////
 
+                                                        if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
+                                                          //solenoid open
+                                                          while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+
+                                                          if(r_check.back().first >= travelDistance){
+                                                            r_check.pop_back();
+                                                          }
+                                                          if(l_check.back().first >= travelDistance){
+                                                            l_check.pop_back();
+                                                          }
+                                                          cnt = 0;
+                                                        }else{
+                                                          //go back
+                                                          if(cnt > 3){
+                                                            while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                            cnt = -1;
+                                                          }else if(cnt == -1){
+                                                            while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                          }else{
+                                                            cnt++;
+                                                          }
+                                                        }
 
                                                         //Save Data
                                                         //printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
@@ -938,4 +942,35 @@ Point getmax(vector<Point> vec, int begin, int end, int &maxIndex){
         }
 
         return maxPoint;
+}
+
+void getCheckPoint(vector<Point> &save, vector<Point> &check){
+        int last = 0;
+        check.push_back(getmax(save, 0, K_SIZE, last));
+
+        for(int i = K_SIZE; i < save.size(); i++) {
+                if((i - last) < K_SIZE) {
+                        if(check.back().second < save.at(i).second) {
+                                check.pop_back();
+                                check.push_back(save.at(i));
+                                last = i;
+                        }
+                }else{
+                        check.push_back(save.at(i));
+                        last = i;
+                }
+        }
+}
+
+void init(){
+        r_check.clear();
+        l_check.clear();
+}
+
+void sortByFirst(vector<Point> &object){
+        sort(object.begin(), object.end(), [] (Point const& a, Point const& b) { return a.first < b.first; });
+}
+
+void sortBySecond(vector<Point> &object){
+        sort(object.begin(), object.end(), [] (Point const& a, Point const& b) { return a.second < b.second; });
 }
