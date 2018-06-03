@@ -66,6 +66,7 @@ Point getmax(vector<Point>, int begin, int end, int &maxIndex);
 void getCheckPoint(vector<Point> &save, vector<Point> &check);
 void sortByFirst(vector<Point> &object);
 void sortBySecond(vector<Point> &object);
+void init();
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -188,10 +189,10 @@ int main()
 
                         if(recv.find("@#", 0) != std::string::npos) {
                                 if(recv.find("g", 0) != std::string::npos) { //graph
-                                        if(r_save.size() != 0) {
-                                                RamerDouglasPeucker(r_save, 0.03, r_save);
-                                                RamerDouglasPeucker(l_save, 0.03, l_save);
-                                        }
+                                        //if(r_save.size() != 0) {
+                                        //        RamerDouglasPeucker(r_save, 0.03, r_save);
+                                        //        RamerDouglasPeucker(l_save, 0.03, l_save);
+                                        //}
                                         string temp = "@#";
                                         temp += "r";
                                         temp += "n" + to_string(r_save.size());
@@ -204,7 +205,7 @@ int main()
                                                 usleep(DELAY_US);
                                         }
 
-                                        sleep(1);
+                                        usleep(100000);
 
                                         temp = "@#";
                                         temp += "l";
@@ -245,6 +246,7 @@ int main()
                                         printf("\ntarget distance = %g\n", targetDistance);
 
                                 }else if(recv.find("s", 0) != std::string::npos) { //start
+					init();
                                         systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);
                                 }else if(recv.find("p", 0) != std::string::npos) {
                                         systemState = static_cast<SystemState>(NOT_OPERATING);
@@ -375,6 +377,7 @@ void alarmWakeup(int sig_num)
                                                         if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
                                                           //solenoid open
                                                           while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+							printf("\nopen valve\n");
 
                                                           if(r_check.back().first >= travelDistance){
                                                             r_check.pop_back();
@@ -388,6 +391,7 @@ void alarmWakeup(int sig_num)
                                                           if(cnt > 3){
                                                             while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                             cnt = -1;
+								printf("\nclose valve\n");
                                                           }else if(cnt == -1){
                                                             while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
                                                           }else{
@@ -965,6 +969,8 @@ void getCheckPoint(vector<Point> &save, vector<Point> &check){
 void init(){
         r_check.clear();
         l_check.clear();
+	r_save.clear();
+	l_save.clear();
 }
 
 void sortByFirst(vector<Point> &object){
