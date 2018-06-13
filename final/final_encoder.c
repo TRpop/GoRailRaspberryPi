@@ -9,7 +9,7 @@
 #include <vector>
 #include <sstream>
 #include <math.h>
-
+#include <algorithm>
 #include <utility>
 
 #include <cmath>
@@ -62,6 +62,11 @@ void parse(char[], gps_data_t &data);
 //void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY);
 void update_distance(int);
 void update_distance_back(int);
+Point getmax(vector<Point>, int begin, int end, int &maxIndex);
+void getCheckPoint(vector<Point> &save, vector<Point> &check);
+void sortByFirst(vector<Point> &object);
+void sortBySecond(vector<Point> &object);
+void init();
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -87,26 +92,26 @@ void update_distance_back(int);
 #define CONTROL_PERIOD  0.1
 
 ///////System info///////////////
-#define WHEELRATIO    	0.035
+#define WHEELRATIO      0.035
 #define GEAR_RATIO      22.0
 #define PPR             13.0
 
 //#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*pi*WHEEL_RADIUS/CONTROL_PERIOD
 #define ENCODER2METER(x) ((double)x/(GEAR_RATIO * PPR))*2*M_PI*WHEELRATIO
 
+#define K_SIZE 5
+
 ////////////////Global Variable////////////////
 char input[1024] = { 0 };
 
-int connected = 0;
-
 int leftThermo;
 int rightThermo;
-int arduino;
+volatile int arduino;
 
-vector<Point > v;
+vector<Point> r_save, l_save;
+vector<Point> r_check, l_check;
+
 double travelDistance = 0.0;
-double step = 0.0;  //temp
-
 double targetDistance = 0.0;
 int deltaEncoded = 0;
 double delta = 0.0;
@@ -123,6 +128,8 @@ char msg[MINMEA_MAX_LENGTH] = {0, };
 char ch;
 gps_data_t gps_data, old_gps_data;
 utm_data_t utm_data;
+
+int cnt = -1;
 ////////////////////////////////////////////////////
 
 int main()
@@ -182,16 +189,32 @@ int main()
 
                         if(recv.find("@#", 0) != std::string::npos) {
                                 if(recv.find("g", 0) != std::string::npos) { //graph
-					if(v.size() != 0){
-						RamerDouglasPeucker(v, 0.03, v);
-					}
+                                        //if(r_save.size() != 0) {
+                                        //        RamerDouglasPeucker(r_save, 0.03, r_save);
+                                        //        RamerDouglasPeucker(l_save, 0.03, l_save);
+                                        //}
                                         string temp = "@#";
-                                        temp += "n" + to_string(v.size());
+                                        temp += "r";
+                                        temp += "n" + to_string(r_save.size());
                                         write_server(client, temp.c_str(), temp.length());
                                         usleep(DELAY_US);
 
                                         for(int i = 0; temp.find("&*") == string::npos; i++) {
-                                                temp = make_string(i*50, (i+1)*50, v);
+                                                temp = make_string(i*50, (i+1)*50, r_save);
+                                                write_server(client, temp.c_str(), temp.length());
+                                                usleep(DELAY_US);
+                                        }
+
+                                        usleep(100000);
+
+                                        temp = "@#";
+                                        temp += "l";
+                                        temp += "n" + to_string(l_save.size());
+                                        write_server(client, temp.c_str(), temp.length());
+                                        usleep(DELAY_US);
+
+                                        for(int i = 0; temp.find("&*") == string::npos; i++) {
+                                                temp = make_string(i*50, (i+1)*50, l_save);
                                                 write_server(client, temp.c_str(), temp.length());
                                                 usleep(DELAY_US);
                                         }
@@ -207,12 +230,16 @@ int main()
 
                                         int i2c_recv;
 
-                                        
-                                                                      do {
-                                                                              i2c_recv = read_raw_data(arduino, (deltaEncoded | 0xF0));
-                                                                              usleep(DELAY_US);
-                                                                      } while(i2c_recv != deltaEncoded);
-                                         
+					/*
+                                        do {
+                                                i2c_recv = read_raw_data(arduino, (deltaEncoded | 0xF0));
+                                                usleep(DELAY_US);
+                                        } while(i2c_recv != deltaEncoded);
+					*/
+
+					if(read_raw_data(arduino, (deltaEncoded | 0xF0)) == deltaEncoded) printf("delta received : %d\n", deltaEncoded);
+					else printf("delta write error\n");
+
 
                                 }else if(recv.find("di", 0) != std::string::npos) { //distance
                                         int st = recv.find("di", 0) + 2;
@@ -223,6 +250,7 @@ int main()
                                         printf("\ntarget distance = %g\n", targetDistance);
 
                                 }else if(recv.find("s", 0) != std::string::npos) { //start
+					init();
                                         systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);
                                 }else if(recv.find("p", 0) != std::string::npos) {
                                         systemState = static_cast<SystemState>(NOT_OPERATING);
@@ -257,7 +285,7 @@ void alarmWakeup(int sig_num)
                                 if(ch == '\n') {
                                         msg[i] = '\0';
                                         parse(msg, gps_data);
-					//WGS2UTM(gps_data.latitude, gps_data.longitude, utm_data.x, utm_data.y);
+                                        //WGS2UTM(gps_data.latitude, gps_data.longitude, utm_data.x, utm_data.y);
                                         flag = 0;
                                 }
                         }
@@ -270,6 +298,18 @@ void alarmWakeup(int sig_num)
 
                                 if(travelDistance >= targetDistance) {  //
                                         systemState = static_cast<SystemState>(OPERATING | HEADING_BACK);
+
+                                        r_check.clear();
+                                        l_check.clear();
+                                        getCheckPoint(r_save, r_check);
+                                        getCheckPoint(l_save, l_check);
+
+                                        sortBySecond(r_check);
+                                        sortBySecond(l_check);
+                                        if(r_check.size() > 10) r_check.resize(10);
+                                        if(l_check.size() > 10) l_check.resize(10);
+                                        sortByFirst(r_check);
+                                        sortByFirst(l_check);
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -288,12 +328,18 @@ void alarmWakeup(int sig_num)
 
                                                         //refine situation, update distance
                                                         //refineSituation()
-							update_distance(encoder);
+                                                        update_distance(encoder);
                                                         //////////////////////
 
                                                         //Command
+							/*
+                                                        while(read_raw_data(arduino, GO_FRONT) != GO_FRONT){
+								printf("go front\n");
+								usleep(DELAY_US);
+							}*/
 
-							while(read_raw_data(arduino, GO_FRONT) != GO_FRONT);
+							if(read_raw_data(arduino, GO_FRONT) == GO_FRONT) printf("go front\n");
+							else printf("response error\n");
 
                                                         ///////////////
 
@@ -303,7 +349,8 @@ void alarmWakeup(int sig_num)
 
                                                         //step += 0.5;
 
-                                                        v.push_back(make_pair(travelDistance, (left_temp + right_temp)/2));
+                                                        r_save.push_back(make_pair(travelDistance, right_temp));
+                                                        l_save.push_back(make_pair(travelDistance, left_temp));
                                                         ///////////////
 
                                                 }else{  //if car is moving
@@ -315,10 +362,10 @@ void alarmWakeup(int sig_num)
 
                         }else if((systemState & HEADING_BACK) == HEADING_BACK) {  //HEADING BACK, should mark
                                 //TODO Moving Back
-				if(travelDistance <= 0) {  //
+                                if(travelDistance <= 0) { //
                                         systemState = static_cast<SystemState>(NOT_OPERATING);
-					travelDistance = 0;
-					printf("\nSTOPED\n");
+                                        travelDistance = 0;
+                                        printf("\nSTOPED\n");
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -332,15 +379,122 @@ void alarmWakeup(int sig_num)
 
                                                         //refine situation
                                                         //refineSituation()
-							//travelDistance = travelDistance - ENCODER2METER(encoder);
-							update_distance_back(encoder);
+                                                        //travelDistance = travelDistance - ENCODER2METER(encoder);
+                                                        update_distance_back(encoder);
                                                         //////////////////////
-							///////////////
+                                                        ///////////////
+							if(!(r_check.empty() || l_check.empty())){
+								if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
+									//solenoid open
+									while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+                                                        		printf("\nopen valve\n");
 
+                                                          		if(r_check.back().first >= travelDistance){
+                                                          			r_check.pop_back();
+                                                          		}
+									if(l_check.back().first >= travelDistance){
+			                                                        l_check.pop_back();
+                        		                                }
+                                        		                cnt = 0;
+
+								}else{
+                                                          		//go back
+                                                          		if(cnt > 3){
+                                                            			while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                            			cnt = -1;
+                                                                		printf("\nclose valve\n");
+                                                          		}else if(cnt == -1){
+                                                            			while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                          		}else{
+                                                          			cnt++;
+                                                          		}
+                                                        	}
+							}else if(!r_check.empty()){
+								if(r_check.back().first >= travelDistance){
+									//solenoid open
+                                                                        while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+                                                                        printf("\nopen valve\n");
+
+                                                                        if(r_check.back().first >= travelDistance){
+                                                                                r_check.pop_back();
+                                                                        }
+                                                                        cnt = 0;
+								}else{
+                                                                        //go back
+                                                                        if(cnt > 3){
+                                                                                while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                                                cnt = -1;
+                                                                                printf("\nclose valve\n");
+                                                                        }else if(cnt == -1){
+                                                                                while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                                        }else{
+                                                                                cnt++;
+                                                                        }
+                                                                }
+							}else if(!l_check.empty()){
+								if(l_check.back().first >= travelDistance){
+									//solenoid open
+                                                                        while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+                                                                        printf("\nopen valve\n");
+
+                                                                        if(l_check.back().first >= travelDistance){
+                                                                                l_check.pop_back();
+                                                                        }
+                                                                        cnt = 0;
+								}else{
+                                                                        //go back
+                                                                        if(cnt > 3){
+                                                                                while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                                                cnt = -1;
+                                                                                printf("\nclose valve\n");
+                                                                        }else if(cnt == -1){
+                                                                                while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                                        }else{
+                                                                                cnt++;
+                                                                        }
+                                                                }
+							}else{
+								if(cnt > 3){
+                                                                	while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                                        cnt = -1;
+                                                                        printf("\nclose valve\n");
+                                                                }else if(cnt == -1){
+                                                                        while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                                }else{
+                                                                        cnt++;
+                                                                }
+								//while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+							}
+
+							/*
+                                                        if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
+                                                          //solenoid open
+                                                          while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+							printf("\nopen valve\n");
+
+                                                          if(r_check.back().first >= travelDistance){
+                                                            r_check.pop_back();
+                                                          }
+                                                          if(l_check.back().first >= travelDistance){
+                                                            l_check.pop_back();
+                                                          }
+                                                          cnt = 0;
+                                                        }else{
+                                                          //go back
+                                                          if(cnt > 3){
+                                                            while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                            cnt = -1;
+								printf("\nclose valve\n");
+                                                          }else if(cnt == -1){
+                                                            while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                          }else{
+                                                            cnt++;
+                                                          }
+                                                        }*/
 
                                                         //Save Data
                                                         //printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
-							printf("%lf\n", travelDistance);
+                                                        printf("%lf\n", travelDistance);
                                                         //step += 0.5;
 
                                                         //v.push_back(make_pair(step, (left_temp + right_temp)/2));
@@ -827,56 +981,95 @@ void parse(char line[], gps_data_t &data){
 }
 
 /*
-
-void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY){
-int iUTM_zone;
-
-double dLat, dLon;
-
-// coordinates in radians
-dLat = Latitude*M_PI/180;
-dLon = Longitude*M_PI/180;
-
-// UTM parameters
-double lon0_f = floor(Longitude/6)*6+3; // reference longitude in degrees
-double lon0 = lon0_f*M_PI/180; // in radians
-double k0 = 0.9996; // scale on central meridian
-
-int FE = 500000; // false easting
-int FN = (Latitude < 0)*10000000; // false northing 
-
-// Equations parameters
-// N: radius of curvature of the earth perpendicular to meridian plane
-// Also, distance from point to polar axis
-double WN = Wa/sqrt( 1 - pow(We,2)*pow(sin(dLat),2)); 
-double WT = pow(tan(dLat),2); 
-double WC = (pow(We,2)/(1 - pow(We,2)))*pow(cos(dLat),2);
-double WLA = (dLon - lon0)*cos(dLat); 
-// M: true distance along the central meridian from the equator to lat
-double WM = Wa*((1 - pow(We,2)/4 - 3*pow(We,4)/64 - 5*pow(We,6)/256)*dLat
-- (3*pow(We,2)/8 + 3*pow(We,4)/32 + 45*pow(We,6)/1024)*sin(2*dLat) 
-+ (15*pow(We,4)/256 + 45*pow(We,6)/1024)*sin(4*dLat) - (35*pow(We,6)/3072)*sin(6*dLat));
-
-// easting
-lfUtmX = FE + k0*WN*(WLA + (1 - WT + WC)*pow(WLA,3)/6 + (5 - 18*WT + pow(WT,2) + 72*WC - 58*Weps)*pow(WLA,5)/120);
-
-// northing 
-// M(lat0) = 0 so not used in following formula
-lfUtmY = FN + k0*WM + k0*WN*tan(dLat)*(pow(WLA,2)/2 + (5 - WT + 9*WC + 4*pow(WC,2))*pow(WLA,4)/24
-+ (61 - 58*WT + pow(WT,2) + 600*WC - 330*Weps)*pow(WLA,6)/720);
-
-// UTM zone
-//iZone = (int)(floor(lon0_f/6)+31);
-
-//cout<<"UTM_X : "<<dUTM_X<<" / ";
-//cout<<"UTM_Y : "<<dUTM_Y<<endl;
-}
-*/
+   void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY){
+   int iUTM_zone;
+   double dLat, dLon;
+   // coordinates in radians
+   dLat = Latitude*M_PI/180;
+   dLon = Longitude*M_PI/180;
+   // UTM parameters
+   double lon0_f = floor(Longitude/6)*6+3; // reference longitude in degrees
+   double lon0 = lon0_f*M_PI/180; // in radians
+   double k0 = 0.9996; // scale on central meridian
+   int FE = 500000; // false easting
+   int FN = (Latitude < 0)*10000000; // false northing
+   // Equations parameters
+   // N: radius of curvature of the earth perpendicular to meridian plane
+   // Also, distance from point to polar axis
+   double WN = Wa/sqrt( 1 - pow(We,2)*pow(sin(dLat),2));
+   double WT = pow(tan(dLat),2);
+   double WC = (pow(We,2)/(1 - pow(We,2)))*pow(cos(dLat),2);
+   double WLA = (dLon - lon0)*cos(dLat);
+   // M: true distance along the central meridian from the equator to lat
+   double WM = Wa*((1 - pow(We,2)/4 - 3*pow(We,4)/64 - 5*pow(We,6)/256)*dLat
+   - (3*pow(We,2)/8 + 3*pow(We,4)/32 + 45*pow(We,6)/1024)*sin(2*dLat)
+ + (15*pow(We,4)/256 + 45*pow(We,6)/1024)*sin(4*dLat) - (35*pow(We,6)/3072)*sin(6*dLat));
+   // easting
+   lfUtmX = FE + k0*WN*(WLA + (1 - WT + WC)*pow(WLA,3)/6 + (5 - 18*WT + pow(WT,2) + 72*WC - 58*Weps)*pow(WLA,5)/120);
+   // northing
+   // M(lat0) = 0 so not used in following formula
+   lfUtmY = FN + k0*WM + k0*WN*tan(dLat)*(pow(WLA,2)/2 + (5 - WT + 9*WC + 4*pow(WC,2))*pow(WLA,4)/24
+ + (61 - 58*WT + pow(WT,2) + 600*WC - 330*Weps)*pow(WLA,6)/720);
+   // UTM zone
+   //iZone = (int)(floor(lon0_f/6)+31);
+   //cout<<"UTM_X : "<<dUTM_X<<" / ";
+   //cout<<"UTM_Y : "<<dUTM_Y<<endl;
+   }
+ */
 
 void update_distance(int encoder){
-	travelDistance += ENCODER2METER(encoder);
+        travelDistance += ENCODER2METER(encoder);
 }
 
 void update_distance_back(int encoder){
-	travelDistance -= ENCODER2METER(encoder);
+        travelDistance -= ENCODER2METER(encoder);
+}
+
+Point getmax(vector<Point> vec, int begin, int end, int &maxIndex){
+        vector<Point>::iterator it;
+        double max = -10000;
+        Point maxPoint;
+        int n = 0;
+        for(it = vec.begin() + begin; it != vec.begin() + end; it++, n++) {
+                if(max < it->second) {
+                        max = it->second;
+                        maxPoint = *it;
+                        maxIndex = begin + n;
+                }
+        }
+
+        return maxPoint;
+}
+
+void getCheckPoint(vector<Point> &save, vector<Point> &check){
+        int last = 0;
+        check.push_back(getmax(save, 0, K_SIZE, last));
+
+        for(int i = K_SIZE; i < save.size(); i++) {
+                if((i - last) < K_SIZE) {
+                        if(check.back().second < save.at(i).second) {
+                                check.pop_back();
+                                check.push_back(save.at(i));
+                                last = i;
+                        }
+                }else{
+                        check.push_back(save.at(i));
+                        last = i;
+                }
+        }
+}
+
+void init(){
+        r_check.clear();
+        l_check.clear();
+	r_save.clear();
+	l_save.clear();
+}
+
+void sortByFirst(vector<Point> &object){
+        sort(object.begin(), object.end(), [] (Point const& a, Point const& b) { return a.first < b.first; });
+}
+
+void sortBySecond(vector<Point> &object){
+        sort(object.begin(), object.end(), [] (Point const& a, Point const& b) { return a.second < b.second; });
 }

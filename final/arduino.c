@@ -106,7 +106,7 @@ char input[1024] = { 0 };
 
 int leftThermo;
 int rightThermo;
-int arduino;
+volatile int arduino;
 
 vector<Point> r_save, l_save;
 vector<Point> r_check, l_check;
@@ -230,11 +230,15 @@ int main()
 
                                         int i2c_recv;
 
-
+					/*
                                         do {
                                                 i2c_recv = read_raw_data(arduino, (deltaEncoded | 0xF0));
                                                 usleep(DELAY_US);
                                         } while(i2c_recv != deltaEncoded);
+					*/
+
+					if(read_raw_data(arduino, (deltaEncoded | 0xF0)) == deltaEncoded) printf("delta received : %d\n", deltaEncoded);
+					else printf("delta write error\n");
 
 
                                 }else if(recv.find("di", 0) != std::string::npos) { //distance
@@ -302,8 +306,8 @@ void alarmWakeup(int sig_num)
 
                                         sortBySecond(r_check);
                                         sortBySecond(l_check);
-                                        if(r_check.size() > 10) r_check.resize(10);
-                                        if(l_check.size() > 10) l_check.resize(10);
+                                        if(r_check.size() > 3) r_check.resize(3);
+                                        if(l_check.size() > 3) l_check.resize(3);
                                         sortByFirst(r_check);
                                         sortByFirst(l_check);
                                 }else{
@@ -328,8 +332,13 @@ void alarmWakeup(int sig_num)
                                                         //////////////////////
 
                                                         //Command
+							/*
+                                                        while(read_raw_data(arduino, GO_FRONT) != GO_FRONT){
+								printf("go front\n");
+								usleep(DELAY_US);
+							}*/
 
-                                                        while(read_raw_data(arduino, GO_FRONT) != GO_FRONT){usleep(DELAY_US);}
+							while(read_raw_data(arduino, GO_FRONT) != GO_FRONT) {usleep(DELAY_US);}
 
                                                         ///////////////
 
@@ -352,7 +361,7 @@ void alarmWakeup(int sig_num)
 
                         }else if((systemState & HEADING_BACK) == HEADING_BACK) {  //HEADING BACK, should mark
                                 //TODO Moving Back
-                                if(travelDistance <= 0) { //
+                                if(travelDistance <= 0 && cnt == -1) { //
                                         systemState = static_cast<SystemState>(NOT_OPERATING);
                                         travelDistance = 0;
                                         printf("\nSTOPED\n");
@@ -366,14 +375,110 @@ void alarmWakeup(int sig_num)
 
                                                         //Data Fetch
                                                         int encoder = read_raw_data(arduino, GET_ENCODER);
-
+							usleep(DELAY_US);
                                                         //refine situation
                                                         //refineSituation()
                                                         //travelDistance = travelDistance - ENCODER2METER(encoder);
                                                         update_distance_back(encoder);
                                                         //////////////////////
                                                         ///////////////
+							if(!(r_check.empty() || l_check.empty())){
+								if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
+									//solenoid open
+									while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+                                                        		printf("\nopen valve\n");
 
+                                                          		if(r_check.back().first >= travelDistance){
+										printf("r pop\n");
+                                                          			r_check.pop_back();
+                                                          		}
+									if(l_check.back().first >= travelDistance){
+										printf("l pop\n");
+			                                                        l_check.pop_back();
+                        		                                }
+                                        		                cnt = 0;
+
+								}else{
+                                                          		//go back
+                                                          		if(cnt > 3){
+										printf("try closing valve both\n");
+                                                            			while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                            			cnt = -1;
+                                                                		printf("\nclose valve\n");
+                                                          		}else if(cnt == -1){
+										printf("go back both\n");
+                                                            			while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+										printf("go back end\n");
+                                                          		}else{
+                                                          			cnt++;
+                                                          		}
+                                                        	}
+							}else if(!r_check.empty()){
+								if(r_check.back().first >= travelDistance){
+									//solenoid open
+                                                                        while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+                                                                        printf("\nopen valve\n");
+
+                                                                        if(r_check.back().first >= travelDistance){
+										printf("r pop\n");
+                                                                                r_check.pop_back();
+                                                                        }
+                                                                        cnt = 0;
+								}else{
+                                                                        //go back
+                                                                        if(cnt > 3){
+										printf("try closing valve right\n");
+                                                                                while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                                                cnt = -1;
+                                                                                printf("\nclose valve\n");
+                                                                        }else if(cnt == -1){
+										printf("go back right\n");
+                                                                                while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                                        }else{
+                                                                                cnt++;
+                                                                        }
+                                                                }
+							}else if(!l_check.empty()){
+								if(l_check.back().first >= travelDistance){
+									//solenoid open
+                                                                        while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+                                                                        printf("\nopen valve\n");
+
+                                                                        if(l_check.back().first >= travelDistance){
+										printf("l pop\n");
+                                                                                l_check.pop_back();
+                                                                        }
+                                                                        cnt = 0;
+								}else{
+                                                                        //go back
+                                                                        if(cnt > 3){
+										printf("try closing valve left");
+                                                                                while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                                                cnt = -1;
+                                                                                printf("\nclose valve\n");
+                                                                        }else if(cnt == -1){
+										printf("go back left\n");
+                                                                                while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                                        }else{
+                                                                                cnt++;
+                                                                        }
+                                                                }
+							}else{
+								if(cnt > 3){
+									printf("try closing valve last");
+                                                                	while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                                        cnt = -1;
+                                                                        printf("\nclose valve\n");
+                                                                }else if(cnt == -1){
+									printf("go back last\n");
+                                                                        while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                                }else{
+                                                                        cnt++;
+                                                                }
+								//while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+							}
+
+							/*
                                                         if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
                                                           //solenoid open
                                                           while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
@@ -397,7 +502,7 @@ void alarmWakeup(int sig_num)
                                                           }else{
                                                             cnt++;
                                                           }
-                                                        }
+                                                        }*/
 
                                                         //Save Data
                                                         //printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
@@ -441,6 +546,7 @@ double decodeDelta(int Encoded){
 }
 
 CarState decodeCarState(short state){
+	//printf("%d", state);
         switch(state) {
         case 1:
                 return STOPED;
@@ -782,11 +888,18 @@ void parse(char line[], gps_data_t &data){
                                 minmea_rescale(&frame.longitude, 1000),
                                 minmea_rescale(&frame.speed, 1000));
                          */
+			/*
                         printf("$xxRMC floating point degree coordinates and speed: (%f,%f) %f, %f degree\n",
                                minmea_tocoord(&frame.latitude),
                                minmea_tocoord(&frame.longitude),
                                minmea_tofloat(&frame.speed),
                                minmea_tofloat(&frame.course));
+			*/
+			data.latitude = minmea_tocoord(&frame.latitude);
+			data.longitude = minmea_tocoord(&frame.longitude);
+			data.heading = minmea_tofloat(&frame.course);
+			data.velocity = minmea_tofloat(&frame.speed);
+			//printf("lat : %f,\tlong : %f,\theading : %f degree,\tvel : %f m/s\n", data.latitude, data.longitude, data.heading, data.velocity);
                 }
                 else {
                         printf("$xxRMC sentence is not parsed\n");
