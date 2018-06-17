@@ -97,9 +97,12 @@ void init();
 #define PPR             13.0
 
 //#define ENCODER2SPEED(x)	(x/(GEAR_RATIO * PPR))*2*pi*WHEEL_RADIUS/CONTROL_PERIOD
-#define ENCODER2METER(x) ((double)x/(GEAR_RATIO * PPR))*2*M_PI*WHEELRATIO
+#define ENCODER2METER(x) ((double)x/(2600.0))*2*M_PI*WHEELRATIO
 
 #define K_SIZE 5
+
+#define TL_OFFSET 0.9
+#define TR_OFFSET 0.9
 
 ////////////////Global Variable////////////////
 char input[1024] = { 0 };
@@ -193,6 +196,7 @@ int main()
                                         //        RamerDouglasPeucker(r_save, 0.03, r_save);
                                         //        RamerDouglasPeucker(l_save, 0.03, l_save);
                                         //}
+					sortByFirst(r_save);
                                         string temp = "@#";
                                         temp += "r";
                                         temp += "n" + to_string(r_save.size());
@@ -207,6 +211,7 @@ int main()
 
                                         usleep(100000);
 
+					sortByFirst(l_save);
                                         temp = "@#";
                                         temp += "l";
                                         temp += "n" + to_string(l_save.size());
@@ -325,6 +330,9 @@ void alarmWakeup(int sig_num)
                                                         right_temp = read_raw_data(rightThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
                                                         usleep(DELAY_US);
                                                         int encoder = read_raw_data(arduino, GET_ENCODER);
+
+							left_temp += TL_OFFSET;
+							right_temp += TR_OFFSET;
 
                                                         //refine situation, update distance
                                                         //refineSituation()
@@ -899,6 +907,7 @@ void parse(char line[], gps_data_t &data){
 			data.longitude = minmea_tocoord(&frame.longitude);
 			data.heading = minmea_tofloat(&frame.course);
 			data.velocity = minmea_tofloat(&frame.speed);
+			//if(isnan(data.latitude)) printf("It's nan");
 			//printf("lat : %f,\tlong : %f,\theading : %f degree,\tvel : %f m/s\n", data.latitude, data.longitude, data.heading, data.velocity);
                 }
                 else {

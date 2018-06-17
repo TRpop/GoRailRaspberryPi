@@ -103,6 +103,8 @@ void init();
 
 #define K_SIZE 5
 
+#define TR_OFFSET 0.9
+#define TL_OFFSET 0.9
 ////////////////Global Variable////////////////
 char input[1024] = { 0 };
 
@@ -330,6 +332,9 @@ void alarmWakeup(int sig_num)
                                                         right_temp = read_raw_data(rightThermo, MLX90614_TOBJ1)*0.02-273.15;//Temperature conversion
                                                         usleep(DELAY_US);
                                                         int encoder = read_raw_data(arduino, GET_ENCODER);
+
+							left_temp += TL_OFFSET;
+							right_temp += TR_OFFSET;
 
                                                         //refine situation, update distance
                                                         //refineSituation()
@@ -904,6 +909,7 @@ void parse(char line[], gps_data_t &data){
 			data.longitude = minmea_tocoord(&frame.longitude);
 			data.heading = minmea_tofloat(&frame.course);
 			data.velocity = minmea_tofloat(&frame.speed);
+			if(isnan(data.latitude)) printf("It's nan\n");
 			//printf("lat : %f,\tlong : %f,\theading : %f degree,\tvel : %f m/s\n", data.latitude, data.longitude, data.heading, data.velocity);
                 }
                 else {
