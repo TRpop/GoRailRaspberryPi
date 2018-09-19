@@ -46,13 +46,7 @@ typedef double Distance;
 typedef double Temperature;
 
 typedef struct {
-        double x, y, heading, velocity;
-	char zone[10];
-} utm_data_t;
-
-typedef struct {
 	LatLng ll;
-	utm_data_t utm;
 	Distance distance;
 	Temperature l_temp, r_temp;
 } DrivingData;
@@ -61,16 +55,18 @@ typedef struct {
         float latitude, longitude, heading, velocity;
 } gps_data_t;
 
+typedef struct {
+        float x, y, heading, velocity;
+} utm_data_t;
 
 enum CarState {MOVING, STOPED, STATE_ERROR};
-enum SystemState {OPERATING = 1, HEADING_FRONT = 2, HEADING_BACK = 4, NOT_OPERATING = 8, PENDING_GPS = 16};
+enum SystemState {OPERATING = 1, HEADING_FRONT = 2, HEADING_BACK = 4, NOT_OPERATING = 8};
 
 //////////////////////////////Functions//////////////////////////////
 void alarmWakeup(int sig_num);
 string make_string(int, int, vector<Point >&);
-string make_string(int from, int to, vector<DrivingData>& vec, char lr);
-//double PerpendicularDistance(const Point &pt, const Point &lineStart, const Point &lineEnd);
-//void RamerDouglasPeucker(const vector<Point> &pointList, double epsilon, vector<Point> &out);
+double PerpendicularDistance(const Point &pt, const Point &lineStart, const Point &lineEnd);
+void RamerDouglasPeucker(const vector<Point> &pointList, double epsilon, vector<Point> &out);
 short read_raw_data(int fd, int addr);
 int _str2uuid( const char *uuid_str, uuid_t *uuid );
 sdp_session_t *register_service(uint8_t rfcomm_channel);
@@ -82,18 +78,12 @@ double decodeDelta(int Encoded);
 void parse(char[], gps_data_t &data);
 //void WGS2UTM(float Latitude, float Longitude, float &lfUtmX, float &lfUtmY);
 void update_distance(int, Temperature, Temperature);
-void update_distance_back(int, DrivingData&);
+void update_distance_back(int);
 Point getmax(vector<Point>, int begin, int end, int &maxIndex);
-void getCheckPoint(vector<DrivingData> &save, vector<DrivingData> &right_check, vector<DrivingData> &left_check);
 void getCheckPoint(vector<Point> &save, vector<Point> &check);
 void sortByFirst(vector<Point> &object);
 void sortBySecond(vector<Point> &object);
 void init();
-bool isNear(DrivingData& a, DrivingData& b);
-void sortByDistance(vector<DrivingData> &object);
-void sortByRightTemparature(vector<DrivingData> &object);
-void sortByLeftTemparature(vector<DrivingData> &object);
-void sortByTemparature(vector<DrivingData> &right, vector<DrivingData> &left);
 //////////////////////////////////////////////////////////////////////
 
 #define Left_Thermo     0x5A
@@ -137,6 +127,9 @@ int leftThermo;
 int rightThermo;
 volatile int arduino;
 
+vector<Point> r_save, l_save;
+vector<Point> r_check, l_check;
+
 double travelDistance = 0.0;
 double targetDistance = 0.0;
 int deltaEncoded = 0;
@@ -157,9 +150,7 @@ utm_data_t utm_data;
 
 int cnt = -1;
 
-vector<DrivingData> data, r_check, l_check;
-
-DrivingData currentLoc;
+vector<DrivingData> data;
 
 Kalman filter;
 Matrix X(3, 1), X_pre(3, 1), P(3, 3);
@@ -228,12 +219,12 @@ int main()
                                         //}
                                         string temp = "@#";
                                         temp += "r";
-                                        temp += "n" + to_string(data.size());
+                                        temp += "n" + to_string(r_save.size());
                                         write_server(client, temp.c_str(), temp.length());
                                         usleep(DELAY_US);
 
                                         for(int i = 0; temp.find("&*") == string::npos; i++) {
-                                                temp = make_string(i*50, (i+1)*50, data, 'r');
+                                                temp = make_string(i*50, (i+1)*50, r_save);
                                                 write_server(client, temp.c_str(), temp.length());
                                                 usleep(DELAY_US);
                                         }
@@ -242,12 +233,12 @@ int main()
 
                                         temp = "@#";
                                         temp += "l";
-                                        temp += "n" + to_string(data.size());
+                                        temp += "n" + to_string(l_save.size());
                                         write_server(client, temp.c_str(), temp.length());
                                         usleep(DELAY_US);
 
                                         for(int i = 0; temp.find("&*") == string::npos; i++) {
-                                                temp = make_string(i*50, (i+1)*50, data, 'l');
+                                                temp = make_string(i*50, (i+1)*50, l_save);
                                                 write_server(client, temp.c_str(), temp.length());
                                                 usleep(DELAY_US);
                                         }
@@ -284,7 +275,7 @@ int main()
 
                                 }else if(recv.find("s", 0) != std::string::npos) { //start
 					init();
-                                        systemState = static_cast<SystemState>(PENDING_GPS | HEADING_FRONT);
+                                        systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);
                                 }else if(recv.find("p", 0) != std::string::npos) {
                                         systemState = static_cast<SystemState>(NOT_OPERATING);
                                 }
@@ -334,15 +325,15 @@ void alarmWakeup(int sig_num)
 
                                         r_check.clear();
                                         l_check.clear();
-                                        getCheckPoint(data, r_check, l_check);
+                                        getCheckPoint(r_save, r_check);
+                                        getCheckPoint(l_save, l_check);
 
-					sortByTemparature(r_check, l_check);
-
-					if(r_check.size() > 3) r_check.resize(3);
+                                        sortBySecond(r_check);
+                                        sortBySecond(l_check);
+                                        if(r_check.size() > 3) r_check.resize(3);
                                         if(l_check.size() > 3) l_check.resize(3);
-					sortByDistance(r_check);
-					sortByDistance(l_check);
-
+                                        sortByFirst(r_check);
+                                        sortByFirst(l_check);
                                 }else{
                                         carState = decodeCarState(read_raw_data(arduino, GET_STATE));
                                         usleep(DELAY_US);
@@ -384,8 +375,8 @@ void alarmWakeup(int sig_num)
 
                                                         //step += 0.5;
 
-                                                        //r_save.push_back(make_pair(travelDistance, right_temp));
-                                                        //l_save.push_back(make_pair(travelDistance, left_temp));
+                                                        r_save.push_back(make_pair(travelDistance, right_temp));
+                                                        l_save.push_back(make_pair(travelDistance, left_temp));
                                                         ///////////////
 
                                                 }else{  //if car is moving
@@ -415,107 +406,130 @@ void alarmWakeup(int sig_num)
                                                         //refine situation
                                                         //refineSituation()
                                                         //travelDistance = travelDistance - ENCODER2METER(encoder);
-
-							//DrivingData currentLoc;
-							if(cnt == -1){
-                                                        	update_distance_back(encoder, currentLoc);
-							}
+                                                        update_distance_back(encoder);
                                                         //////////////////////
-                                                        //////////////
-
+                                                        ///////////////
 							if(!(r_check.empty() || l_check.empty())){
-								if(isNear(r_check.back(), currentLoc) || isNear(l_check.back(), currentLoc)){
+								if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
+									//solenoid open
 									while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+                                                        		printf("\nopen valve\n");
+
+                                                          		if(r_check.back().first >= travelDistance){
+										printf("r pop\n");
+                                                          			r_check.pop_back();
+                                                          		}
+									if(l_check.back().first >= travelDistance){
+										printf("l pop\n");
+			                                                        l_check.pop_back();
+                        		                                }
+                                        		                cnt = 0;
+
+								}else{
+                                                          		//go back
+                                                          		if(cnt > 3){
+										printf("try closing valve both\n");
+                                                            			while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                            			cnt = -1;
+                                                                		printf("\nclose valve\n");
+                                                          		}else if(cnt == -1){
+										printf("go back both\n");
+                                                            			while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+										printf("go back end\n");
+                                                          		}else{
+                                                          			cnt++;
+                                                          		}
+                                                        	}
+							}else if(!r_check.empty()){
+								if(r_check.back().first >= travelDistance){
+									//solenoid open
+                                                                        while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
                                                                         printf("\nopen valve\n");
 
-                                                                        if(isNear(r_check.back(), currentLoc)){
-                                                                                printf("r pop\n");
+                                                                        if(r_check.back().first >= travelDistance){
+										printf("r pop\n");
                                                                                 r_check.pop_back();
-                                                                        }
-                                                                        if(isNear(l_check.back(), currentLoc)){
-                                                                                printf("l pop\n");
-                                                                                l_check.pop_back();
                                                                         }
                                                                         cnt = 0;
 								}else{
                                                                         //go back
                                                                         if(cnt > 3){
-                                                                                printf("try closing valve both\n");
+										printf("try closing valve right\n");
                                                                                 while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                                                 cnt = -1;
                                                                                 printf("\nclose valve\n");
                                                                         }else if(cnt == -1){
-                                                                                printf("go back both\n");
-                                                                                while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
-                                                                                printf("go back end\n");
-                                                                        }else{
-                                                                                cnt++;
-                                                                        }
-                                                                }
-
-							}else if(!r_check.empty()){
-								if(isNear(r_check.back(), currentLoc)){
-                                                                        //solenoid open
-                                                                        while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
-                                                                        printf("\nopen valve\n");
-
-                                                                        printf("r pop\n");
-                                                                        r_check.pop_back();
-
-                                                                        cnt = 0;
-                                                                }else{
-                                                                        //go back
-                                                                        if(cnt > 3){
-                                                                                printf("try closing valve right\n");
-                                                                                while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
-                                                                                cnt = -1;
-                                                                                printf("\nclose valve\n");
-                                                                        }else if(cnt == -1){
-                                                                                printf("go back right\n");
+										printf("go back right\n");
                                                                                 while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
                                                                         }else{
                                                                                 cnt++;
                                                                         }
                                                                 }
 							}else if(!l_check.empty()){
-								if(isNear(l_check.back(), currentLoc)){
-                                                                        //solenoid open
+								if(l_check.back().first >= travelDistance){
+									//solenoid open
                                                                         while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
                                                                         printf("\nopen valve\n");
 
-                                                                        printf("l pop\n");
-                                                                        l_check.pop_back();
-
+                                                                        if(l_check.back().first >= travelDistance){
+										printf("l pop\n");
+                                                                                l_check.pop_back();
+                                                                        }
                                                                         cnt = 0;
-                                                                }else{
+								}else{
                                                                         //go back
                                                                         if(cnt > 3){
-                                                                                printf("try closing valve left");
+										printf("try closing valve left");
                                                                                 while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                                                 cnt = -1;
                                                                                 printf("\nclose valve\n");
                                                                         }else if(cnt == -1){
-                                                                                printf("go back left\n");
+										printf("go back left\n");
                                                                                 while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
                                                                         }else{
                                                                                 cnt++;
                                                                         }
                                                                 }
-							}else{          //nothing contained
-                                                                if(cnt > 3){
-                                                                        printf("try closing valve last");
-                                                                        while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+							}else{
+								if(cnt > 3){
+									printf("try closing valve last");
+                                                                	while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                                         cnt = -1;
                                                                         printf("\nclose valve\n");
                                                                 }else if(cnt == -1){
-                                                                        printf("go back last\n");
+									printf("go back last\n");
                                                                         while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
                                                                 }else{
                                                                         cnt++;
                                                                 }
-                                                                //while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
-                                                        }
+								//while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+							}
 
+							/*
+                                                        if(r_check.back().first >= travelDistance || l_check.back().first >= travelDistance){
+                                                          //solenoid open
+                                                          while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
+							printf("\nopen valve\n");
+
+                                                          if(r_check.back().first >= travelDistance){
+                                                            r_check.pop_back();
+                                                          }
+                                                          if(l_check.back().first >= travelDistance){
+                                                            l_check.pop_back();
+                                                          }
+                                                          cnt = 0;
+                                                        }else{
+                                                          //go back
+                                                          if(cnt > 3){
+                                                            while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
+                                                            cnt = -1;
+								printf("\nclose valve\n");
+                                                          }else if(cnt == -1){
+                                                            while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
+                                                          }else{
+                                                            cnt++;
+                                                          }
+                                                        }*/
 
                                                         //Save Data
                                                         //printf("left : %g\tright : %g\tencoder : %d\n", left_temp, right_temp, encoder);
@@ -538,9 +552,6 @@ void alarmWakeup(int sig_num)
 
                 }else if((systemState & NOT_OPERATING) == NOT_OPERATING) {
 
-                }else if((systemState & PENDING_GPS) == PENDING_GPS) {
-			printf("lat : %f\n", gps_data.latitude);
-			if(!isnan(gps_data.latitude)) systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);;
                 }
         }
 
@@ -600,52 +611,78 @@ string make_string(int from, int to, vector<Point >& vec){
         return temp;
 }
 
-string make_string(int from, int to, vector<DrivingData>& vec, char lr){
-        string temp = "";
-	if(lr == 'r'){
-	        if(to > vec.size()) {
-        	        for(int i = from; i < vec.size(); i++) {
-                	        string x = to_string(vec.at(i).distance);
-                	        string y = to_string(vec.at(i).r_temp);
-                	        x.erase ( x.find_last_not_of('0') + 1, string::npos );
-                	        y.erase ( y.find_last_not_of('0') + 1, std::string::npos );
-                	        temp += "x" + x + "y" + y;
-                	}
-                	temp += "x&*b\n";
-        	}else{
-                	for(int i = from; i < to; i++) {
-                        	string x = to_string(vec.at(i).distance);
-                        	string y = to_string(vec.at(i).r_temp);
-                        	x.erase ( x.find_last_not_of('0') + 1, string::npos );
-                        	y.erase ( y.find_last_not_of('0') + 1, std::string::npos );
-                        	temp += "x" + x + "y" + y;
-                	}
-                	temp += "xb\n";
-        	}
-	}else if(lr == 'l'){
-		if(to > vec.size()) {
-                        for(int i = from; i < vec.size(); i++) {
-                                string x = to_string(vec.at(i).distance);
-                                string y = to_string(vec.at(i).l_temp);
-                                x.erase ( x.find_last_not_of('0') + 1, string::npos );
-                                y.erase ( y.find_last_not_of('0') + 1, std::string::npos );
-                                temp += "x" + x + "y" + y;
-                        }
-                        temp += "x&*b\n";
-                }else{
-                        for(int i = from; i < to; i++) {
-                                string x = to_string(vec.at(i).distance);
-                                string y = to_string(vec.at(i).l_temp);
-                                x.erase ( x.find_last_not_of('0') + 1, string::npos );
-                                y.erase ( y.find_last_not_of('0') + 1, std::string::npos );
-                                temp += "x" + x + "y" + y;
-                        }
-                        temp += "xb\n";
-                }
-	}
-        //temp += "x&*b\n";
+double PerpendicularDistance(const Point &pt, const Point &lineStart, const Point &lineEnd)
+{
+        double dx = lineEnd.first - lineStart.first;
+        double dy = lineEnd.second - lineStart.second;
 
-        return temp;
+        //Normalise
+        double mag = pow(pow(dx,2.0)+pow(dy,2.0),0.5);
+        if(mag > 0.0)
+        {
+                dx /= mag; dy /= mag;
+        }
+
+        double pvx = pt.first - lineStart.first;
+        double pvy = pt.second - lineStart.second;
+
+        //Get dot product (project pv onto normalized direction)
+        double pvdot = dx * pvx + dy * pvy;
+
+        //Scale line direction vector
+        double dsx = pvdot * dx;
+        double dsy = pvdot * dy;
+
+        //Subtract this from pv
+        double ax = pvx - dsx;
+        double ay = pvy - dsy;
+
+        return pow(pow(ax,2.0)+pow(ay,2.0),0.5);
+}
+
+void RamerDouglasPeucker(const vector<Point> &pointList, double epsilon, vector<Point> &out)
+{
+        if(pointList.size()<2)
+                throw invalid_argument("Not enough points to simplify");
+
+        // Find the point with the maximum distance from line between start and end
+        double dmax = 0.0;
+        size_t index = 0;
+        size_t end = pointList.size()-1;
+        for(size_t i = 1; i < end; i++)
+        {
+                double d = PerpendicularDistance(pointList[i], pointList[0], pointList[end]);
+                if (d > dmax)
+                {
+                        index = i;
+                        dmax = d;
+                }
+        }
+
+        // If max distance is greater than epsilon, recursively simplify
+        if(dmax > epsilon)
+        {
+                // Recursive call
+                vector<Point> recResults1;
+                vector<Point> recResults2;
+                vector<Point> firstLine(pointList.begin(), pointList.begin()+index+1);
+                vector<Point> lastLine(pointList.begin()+index, pointList.end());
+                RamerDouglasPeucker(firstLine, epsilon, recResults1);
+                RamerDouglasPeucker(lastLine, epsilon, recResults2);
+
+                // Build the result list
+                out.assign(recResults1.begin(), recResults1.end()-1);
+                out.insert(out.end(), recResults2.begin(), recResults2.end());
+                if(out.size()<2)
+                        throw runtime_error("Problem assembling output");
+        }
+        else
+        {
+                //Just return start and end points
+                out.clear();
+                out.push_back(pointList[0]);
+                out.push_back(pointList[end]);
+        }
 }
 
 short read_raw_data(int fd, int addr){
@@ -1029,12 +1066,12 @@ void parse(char line[], gps_data_t &data){
  */
 
 void update_distance(int encoder, Temperature left, Temperature right){
-	utm_data_t utm_data;
-	UTM::LLtoUTM(gps_data.latitude, gps_data.longitude, utm_data.y, utm_data.x, utm_data.zone);
+	double N, E;
+	UTM::LLtoUTM(gps_data.latitude, gps_data.longitude, N, E, NULL);
 
 	Matrix Z(3, 1);
-	Z(0, 0) = utm_data.x;
-	Z(1, 0) = utm_data.y;
+	Z(0, 0) = E;
+	Z(1, 0) = N;
 	Z(2, 0) = gps_data.heading * M_PI / 180.0;
 
 	X = filter.step(Z, ENCODER2METER(encoder));
@@ -1043,15 +1080,9 @@ void update_distance(int encoder, Temperature left, Temperature right){
 
 	X_pre = X;
 
-	double Lat, Long;
-
-	UTM::UTMtoLL(X(1, 0), X(0, 0), utm_data.zone, Lat, Long);
-
 	DrivingData temp;
-	temp.ll.lat = Lat;
-	temp.ll.lng = Long;
-	temp.utm.x = X(0, 0);
-	temp.utm.y = X(0, 1);
+	temp.ll.lat = X(0, 0);
+	temp.ll.lng = X(0, 1);
 	temp.distance = travelDistance;
 	temp.l_temp = left;
 	temp.r_temp = right;
@@ -1060,13 +1091,13 @@ void update_distance(int encoder, Temperature left, Temperature right){
         //travelDistance += ENCODER2METER(encoder);
 }
 
-void update_distance_back(int encoder, DrivingData& current){
-	utm_data_t utm_data;
-        UTM::LLtoUTM(gps_data.latitude, gps_data.longitude, utm_data.y, utm_data.x, utm_data.zone);
+void update_distance_back(int encoder){
+        double N, E;
+        UTM::LLtoUTM(gps_data.latitude, gps_data.longitude, N, E, NULL);
 
-	Matrix Z(3, 1);
-        Z(0, 0) = utm_data.x;
-        Z(1, 0) = utm_data.y;
+        Matrix Z(3, 1);
+        Z(0, 0) = E;
+        Z(1, 0) = N;
         Z(2, 0) = gps_data.heading * M_PI / 180.0;
 
         X = filter.step(Z, ENCODER2METER(encoder));
@@ -1074,16 +1105,6 @@ void update_distance_back(int encoder, DrivingData& current){
         travelDistance -= sqrt(pow(X(0, 0) - X_pre(0, 0), 2.0) + pow(X(1, 0) - X_pre(1, 0), 2.0));
 
         X_pre = X;
-
-	double Lat, Long;
-
-        UTM::UTMtoLL(X(1, 0), X(0, 0), utm_data.zone, Lat, Long);
-
-	current.ll.lat = Lat;
-        current.ll.lng = Long;
-        current.utm.x = X(0, 0);
-        current.utm.y = X(0, 1);
-        current.distance = travelDistance;
 }
 
 Point getmax(vector<Point> vec, int begin, int end, int &maxIndex){
@@ -1101,23 +1122,6 @@ Point getmax(vector<Point> vec, int begin, int end, int &maxIndex){
 
         return maxPoint;
 }
-
-void getmax(vector<DrivingData> vec, int begin, int end, int &maxIndexr, int &maxIndexl){
-        vector<DrivingData>::iterator it;
-        double rmax = -10000, lmax = -10000;
-        int n = 0;
-        for(it = vec.begin() + begin; it != vec.begin() + end; it++, n++) {
-                if(rmax < it->r_temp) {
-                        rmax = it->r_temp;
-                        maxIndexr = begin + n;
-                }
-		if(lmax < it->l_temp) {
-                        lmax = it->l_temp;
-                        maxIndexl = begin + n;
-                }
-        }
-}
-
 
 void getCheckPoint(vector<Point> &save, vector<Point> &check){
         int last = 0;
@@ -1137,52 +1141,17 @@ void getCheckPoint(vector<Point> &save, vector<Point> &check){
         }
 }
 
-void getCheckPoint(vector<DrivingData> &save, vector<DrivingData> &right_check, vector<DrivingData> &left_check){
-        int rlast = 0, llast = 0;
-        getmax(save, 0, K_SIZE, rlast, llast);
-
-	right_check.push_back(save.at(rlast));
-
-        for(int i = K_SIZE; i < save.size(); i++) {
-                if((i - rlast) < K_SIZE) {
-                        if(right_check.back().r_temp < save.at(i).r_temp) {
-                                right_check.pop_back();
-                                right_check.push_back(save.at(i));
-                                rlast = i;
-                        }
-                }else{
-                        right_check.push_back(save.at(i));
-                        rlast = i;
-                }
-        }
-
-	left_check.push_back(save.at(llast));
-
-        for(int i = K_SIZE; i < save.size(); i++) {
-                if((i - llast) < K_SIZE) {
-                        if(left_check.back().l_temp < save.at(i).l_temp) {
-                                left_check.pop_back();
-                                left_check.push_back(save.at(i));
-                                llast = i;
-                        }
-                }else{
-                        left_check.push_back(save.at(i));
-                        llast = i;
-                }
-        }
-}
-
 void init(){
-	printf("init started\n");
         r_check.clear();
         l_check.clear();
-	data.clear();
+	r_save.clear();
+	l_save.clear();
 
-	utm_data_t utm_data;
-        UTM::LLtoUTM(gps_data.latitude, gps_data.longitude, utm_data.y, utm_data.x, utm_data.zone);
+	double N, E;
+        UTM::LLtoUTM(gps_data.latitude, gps_data.longitude, N, E, NULL);
 
-	X(0, 0) = utm_data.x;
-	X(1, 0) = utm_data.y;
+	X(0, 0) = E;
+	X(1, 0) = N;
 	X(2, 0) = gps_data.heading * M_PI / 180.0;
 	X_pre = X;
 
@@ -1191,9 +1160,6 @@ void init(){
 	}
 
 	filter.init(X, P);
-
-	cnt = -1;
-	printf("init ended\n");
 }
 
 void sortByFirst(vector<Point> &object){
@@ -1202,25 +1168,4 @@ void sortByFirst(vector<Point> &object){
 
 void sortBySecond(vector<Point> &object){
         sort(object.begin(), object.end(), [] (Point const& a, Point const& b) { return a.second < b.second; });
-}
-
-void sortByDistance(vector<DrivingData> &object){
-	sort(object.begin(), object.end(), [] (DrivingData const& a, DrivingData const& b) { return a.distance < b.distance; });
-}
-
-void sortByRightTemparature(vector<DrivingData> &object){
-	sort(object.begin(), object.end(), [] (DrivingData const& a, DrivingData const& b) { return a.r_temp < b.r_temp; });
-}
-
-void sortByLeftTemparature(vector<DrivingData> &object){
-        sort(object.begin(), object.end(), [] (DrivingData const& a, DrivingData const& b) { return a.l_temp < b.l_temp; });
-}
-
-void sortByTemparature(vector<DrivingData> &right, vector<DrivingData> &left){
-	sort(right.begin(), right.end(), [] (DrivingData const& a, DrivingData const& b) { return a.r_temp < b.r_temp; });
-	sort(left.begin(), left.end(), [] (DrivingData const& a, DrivingData const& b) { return a.l_temp < b.l_temp; });
-}
-
-bool isNear(DrivingData& a, DrivingData& b){
-	return UTM::distanceEarth(a.ll.lat, a.ll.lng, b.ll.lat, b.ll.lng) < delta*1.5;
 }

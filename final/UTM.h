@@ -48,6 +48,8 @@ namespace UTM
 #define UTM_E6		(UTM_E4*UTM_E2)		///< e^6
 #define UTM_EP2		(UTM_E2/(1-UTM_E2))	///< e'^2
 
+#define earthRadiusKm 6371.0
+
     /**
      * Determine the correct UTM letter designator for the
      * given latitude
@@ -132,7 +134,7 @@ namespace UTM
         LongOriginRad = LongOrigin * DEG_TO_RAD;
 
         //compute the UTM Zone from the latitude and longitude
-        //sprintf(UTMZone, "%d%c", ZoneNumber, UTMLetterDesignator(Lat));
+        sprintf(UTMZone, "%d%c", ZoneNumber, UTMLetterDesignator(Lat));
 
         eccPrimeSquared = (eccSquared)/(1-eccSquared);
 
@@ -150,8 +152,8 @@ namespace UTM
                - (35*eccSquared*eccSquared*eccSquared/3072)*sin(6*LatRad));
 
         UTMEasting = (double)
-        (k0*N*(A+(1-T+C)*A*A*A/6
-               + (5-18*T+T*T+72*C-58*eccPrimeSquared)*A*A*A*A*A/120)
+        (k0*N*(A+(1-T+C)*A*A*A/6.0
+               + (5-18*T+T*T+72*C-58*eccPrimeSquared)*A*A*A*A*A/120.0)
          + 500000.0);
 
         UTMNorthing = (double)
@@ -233,6 +235,18 @@ namespace UTM
         Long = LongOrigin + Long * RAD_TO_DEG;
         
     }
+    
+    double distanceEarth(double lat1d, double lon1d, double lat2d, double lon2d) {
+      double lat1r, lon1r, lat2r, lon2r, u, v;
+      lat1r = DEG_TO_RAD*(lat1d);
+      lon1r = DEG_TO_RAD*(lon1d);
+      lat2r = DEG_TO_RAD*(lat2d);
+      lon2r = DEG_TO_RAD*(lon2d);
+      u = sin((lat2r - lat1r)/2);
+      v = sin((lon2r - lon1r)/2);
+      return 2.0 * 1000.0 * earthRadiusKm * asin(sqrt(u * u + cos(lat1r) * cos(lat2r) * v * v));
+    }
+    
 } // end namespace UTM
 
 #endif // _UTM_H
