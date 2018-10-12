@@ -1,9 +1,40 @@
 #include <wiringSerial.h>
 #include <stdio.h>
+#include <iostream>
+#include <unistd.h>
+#include <stdlib.h>
 
 #include "minmea.h"
 
+using namespace std;
+
+typedef struct {
+        float latitude, longitude, heading, velocity;
+} gps_data_t;
+
+gps_data_t data;
+
 void parse(char[]);
+int avail(){
+	fd_set readfds;
+	FD_ZERO(&readfds);
+	struct timeval timeout;
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 0;
+
+	FD_SET(STDIN_FILENO, &readfds);
+
+	int num = select(1, &readfds, NULL, NULL, &timeout);
+
+	if(num > 0){
+		return 1;
+	} else if(num == -1){
+		return 0;
+	} else {
+		return 0;
+	}
+}
+
 
 int fd, i;
 int flag = 0;
@@ -12,28 +43,31 @@ char msg[MINMEA_MAX_LENGTH] = {0, };
 int main(){
 	//fd = serialOpen("/dev/ttyACM0", 9600);
 
-
 	while(1){
 		//int ch = serialGetchar(fd);
-		char ch;
-		scanf("%c", &ch);
-		if(flag == 0){
-			if(ch == '$'){
-				flag = 1;
-				i = 0;
-				msg[i] = ch;
-				i++;
-			}
+		if (0 != cin.peek()) {
+			char ch;
+                        scanf("%c", &ch);
+                        if(flag == 0){
+                                if(ch == '$'){
+                                        flag = 1;
+                                        i = 0;
+                                        msg[i] = ch;
+                                        i++;
+                                }
+                        }else{
+                                msg[i] = ch;
+                                i++;
+                                if(ch == '\n'){
+                                        flag = 0;
+                                        msg[i] = '\0';
+                                        parse(msg);
+                                }
+                        }
 		}else{
-			msg[i] = ch;
-			i++;
-			if(ch == '\n'){
-				flag = 0;
-				msg[i] = '\0';
-				parse(msg);
-			}
+			printf("not avail\n");
+			usleep(10000);
 		}
-	
 	}
 
 
@@ -60,6 +94,20 @@ void parse(char line[]){
                             minmea_tocoord(&frame.longitude),
                             minmea_tofloat(&frame.speed),
 			    minmea_tofloat(&frame.course));
+			data.latitude = minmea_tocoord(&frame.latitude);
+                        data.longitude = minmea_tocoord(&frame.longitude);
+                        data.heading = minmea_tofloat(&frame.course);
+                        data.velocity = minmea_tofloat(&frame.speed);
+			printf("$xxRMC floating point degree coordinates and speed: (%f,%f) %f, %f degree\n",
+                            data.latitude,
+                            data.longitude,
+                            data.heading,
+                            data.velocity);
+			printf("$xxRMC floating point degree coordinates and speed: (%d,%d) %d, %d degree\n",
+                            isnan(minmea_tocoord(&frame.latitude)),
+                            isnan(minmea_tocoord(&frame.longitude)),
+                            isnan(minmea_tofloat(&frame.speed)),
+                            isnan(minmea_tofloat(&frame.course)));
                 }
                 else {
                     printf("$xxRMC sentence is not parsed\n");
