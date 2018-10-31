@@ -1034,38 +1034,37 @@ void getmax(vector<DrivingData> &vec, int begin, int end, int &maxIndexr, int &m
         }
 }
 
-
 void getCheckPoint(vector<DrivingData> &save, vector<DrivingData> &right_check, vector<DrivingData> &left_check){
-        int rlast = 0, llast = 0;
-        getmax(save, 0, K_SIZE, rlast, llast);
+        int rmax = 0, lmax = 0;
+        int len = save.size();
 
-	right_check.push_back(save.at(rlast));
-
-        for(int i = K_SIZE; i < save.size(); i++) {
-                if((i - rlast) < K_SIZE) {
-                        if(right_check.back().r_temp < save.at(i).r_temp) {
-                                right_check.pop_back();
-                                right_check.push_back(save.at(i));
-                                rlast = i;
-                        }
-                }else{
-                        right_check.push_back(save.at(i));
-                        rlast = i;
+        for(int i = 0; i < K_SIZE; i++){
+                getmax(save, 0, i + K_SIZE, rmax, lmax);
+                if(rmax == i){
+                        right_check.push_back(save.at(rmax));
+                }
+                if(lmax == i){
+                        left_check.push_back(save.at(lmax));
                 }
         }
 
-	left_check.push_back(save.at(llast));
+        for(int i = K_SIZE; i < (len - K_SIZE); i++){
+                getmax(save, i - K_SIZE + 1, i + K_SIZE, rmax, lmax);
+                if(rmax == i){
+                        right_check.push_back(save.at(rmax));
+                }
+                if(lmax == i){
+                        left_check.push_back(save.at(lmax));
+                }
+        }
 
-        for(int i = K_SIZE; i < save.size(); i++) {
-                if((i - llast) < K_SIZE) {
-                        if(left_check.back().l_temp < save.at(i).l_temp) {
-                                left_check.pop_back();
-                                left_check.push_back(save.at(i));
-                                llast = i;
-                        }
-                }else{
-                        left_check.push_back(save.at(i));
-                        llast = i;
+        for(int i = len - K_SIZE; i < len; i++){
+                getmax(save, i - K_SIZE + 1, len, rmax, lmax);
+                if(rmax == i){
+                        right_check.push_back(save.at(rmax));
+                }
+                if(lmax == i){
+                        left_check.push_back(save.at(lmax));
                 }
         }
 }
