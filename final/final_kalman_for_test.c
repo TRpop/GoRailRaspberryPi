@@ -40,7 +40,7 @@ using namespace std;
 typedef pair<double, double> Point;
 
 typedef struct {
-	float lat, lng;
+	double lat, lng;
 } LatLng;
 
 typedef double Distance;
@@ -366,17 +366,16 @@ void alarmWakeup(int sig_num)
 					if(r_check.size() > 3) r_check.resize(3);
                                         if(l_check.size() > 3) l_check.resize(3);
 
-					cout << "right";
-					for(int i = 0; i < r_check.size(); i++){
-						cout << "  " << r_check.at(i).r_temp;
-					}
-					cout << "  end" << endl;
+					cout.precision(17);
 
-					cout << "left";
+					for(int i = 0; i < r_check.size(); i++){
+						cout << "r_check = [r_check; " << r_check.at(i).ll.lat << " " << r_check.at(i).ll.lng << " " << r_check.at(i).r_temp << "];" << endl;
+					}
+
+
                                         for(int i = 0; i < l_check.size(); i++){
-                                                cout << "  " << l_check.at(i).l_temp;
+						cout << "l_check = [l_check; " << l_check.at(i).ll.lat << " " << l_check.at(i).ll.lng << " " << l_check.at(i).l_temp << "];" << endl;
                                         }
-                                        cout << "  end" << endl;
 
 					if(r_check.size() > 3) r_check.resize(3);
                                         if(l_check.size() > 3) l_check.resize(3);
@@ -437,6 +436,7 @@ void alarmWakeup(int sig_num)
 
                         }else if((systemState & HEADING_BACK) == HEADING_BACK) {  //HEADING BACK, should mark
                                 //TODO Moving Back
+//				printf("at top of heading back : ");
                                 if(isNear(currentLoc, starting_point) && cnt == -1) { //
                                         systemState = static_cast<SystemState>(NOT_OPERATING);
                                         travelDistance = 0;
@@ -465,16 +465,17 @@ void alarmWakeup(int sig_num)
                                                         //////////////
 
 							if(!(r_check.empty() || l_check.empty())){
+								//printf("at rl start : ");
 								if(isNear(r_check.back(), currentLoc) || isNear(l_check.back(), currentLoc)){
 									while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
-                                                                        printf("\nopen valve\n");
-
+                                                                        //printf("\nopen valve\n");
+									printf("checked_points = [checked_points; %f %f];\n", currentLoc.ll.lat, currentLoc.ll.lng);
                                                                         if(isNear(r_check.back(), currentLoc)){
-                                                                                printf("r pop\n");
+                                                                                //printf("r pop\n");
                                                                                 r_check.pop_back();
                                                                         }
                                                                         if(isNear(l_check.back(), currentLoc)){
-                                                                                printf("l pop\n");
+                                                                                //printf("l pop\n");
                                                                                 l_check.pop_back();
                                                                         }
                                                                         cnt = 0;
@@ -484,7 +485,7 @@ void alarmWakeup(int sig_num)
                                                                                 //printf("try closing valve both\n");
                                                                                 while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                                                 cnt = -1;
-                                                                                printf("\nclose valve\n");
+                                                                                //printf("\nclose valve\n");
                                                                         }else if(cnt == -1){
                                                                                 //printf("go back both\n");
                                                                                 while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
@@ -497,10 +498,11 @@ void alarmWakeup(int sig_num)
 							}else if(!r_check.empty()){
 								if(isNear(r_check.back(), currentLoc)){
                                                                         //solenoid open
+									printf("checked_points = [checked_points; %f %f];\n", currentLoc.ll.lat, currentLoc.ll.lng);
                                                                         while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
-                                                                        printf("\nopen valve\n");
+                                                                        //printf("\nopen valve\n");
 
-                                                                        printf("r pop\n");
+                                                                        //printf("r pop\n");
                                                                         r_check.pop_back();
 
                                                                         cnt = 0;
@@ -510,7 +512,7 @@ void alarmWakeup(int sig_num)
                                                                                 //printf("try closing valve right\n");
                                                                                 while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                                                 cnt = -1;
-                                                                                printf("\nclose valve\n");
+                                                                                //printf("\nclose valve\n");
                                                                         }else if(cnt == -1){
                                                                                 //printf("go back right\n");
                                                                                 while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
@@ -522,9 +524,10 @@ void alarmWakeup(int sig_num)
 								if(isNear(l_check.back(), currentLoc)){
                                                                         //solenoid open
                                                                         while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
-                                                                        printf("\nopen valve\n");
+									printf("checked_points = [checked_points; %f %f];\n", currentLoc.ll.lat, currentLoc.ll.lng);
+                                                                        //printf("\nopen valve\n");
 
-                                                                        printf("l pop\n");
+                                                                        //printf("l pop\n");
                                                                         l_check.pop_back();
 
                                                                         cnt = 0;
@@ -534,7 +537,7 @@ void alarmWakeup(int sig_num)
                                                                                 //printf("try closing valve left");
                                                                                 while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                                                 cnt = -1;
-                                                                                printf("\nclose valve\n");
+                                                                                //printf("\nclose valve\n");
                                                                         }else if(cnt == -1){
                                                                                 //printf("go back left\n");
                                                                                 while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
@@ -547,7 +550,7 @@ void alarmWakeup(int sig_num)
                                                                         //printf("try closing valve last");
                                                                         while(CLOSE_VALVE != read_raw_data(arduino, CLOSE_VALVE)){usleep(DELAY_US);}
                                                                         cnt = -1;
-                                                                        printf("\nclose valve\n");
+                                                                        //printf("\nclose valve\n");
                                                                 }else if(cnt == -1){
                                                                         //printf("go back last\n");
                                                                         while(GO_BACK != read_raw_data(arduino, GO_BACK)){usleep(DELAY_US);}
@@ -1110,7 +1113,8 @@ void update_distance(int encoder, Temperature left, Temperature right){
 
 	data.push_back(temp);
         //travelDistance += ENCODER2METER(encoder);
-	printf("up = [up; %f %f %lf %f %f %f];\n", temp.ll.lat, temp.ll.lng, travelDistance, left, right, X(2, 0));
+	printf("up_raw = [up_raw; %f %f %f];\n", gps_data.latitude, gps_data.longitude, gps_data.heading);
+	printf("up = [up; %f %f %lf %f %f %f];\n", Lat, Long, travelDistance, left, right, X(2, 0));
 }
 
 void update_distance_back(int encoder, DrivingData& current){
@@ -1146,8 +1150,8 @@ void update_distance_back(int encoder, DrivingData& current){
         current.distance = travelDistance;
 	*/
 	//printf("Lat : %f, Lng : %f, heading : %f\n", gps_data.latitude, gps_data.longitude, gps_data.heading);
-
-	printf("down = [down; %f %f %f];\n", Lat, Long, X(2, 0));
+	printf("down_raw = [down_raw; %f %f %f];\n", gps_data.latitude, gps_data.longitude, gps_data.heading);
+	printf("down = [down; %f %f %f];\n", current.ll.lat, current.ll.lng, X(2, 0));
 }
 
 Point getmax(vector<Point> vec, int begin, int end, int &maxIndex){
@@ -1184,7 +1188,41 @@ void getmax(vector<DrivingData> &vec, int begin, int end, int &maxIndexr, int &m
 
 
 void getCheckPoint(vector<DrivingData> &save, vector<DrivingData> &right_check, vector<DrivingData> &left_check){
-        int rlast = 0, llast = 0;
+	int rmax = 0, lmax = 0;
+	int len = save.size();
+
+	for(int i = 0; i < K_SIZE; i++){
+		getmax(save, 0, i + K_SIZE, rmax, lmax);
+		if(rmax == i){
+			right_check.push_back(save.at(rmax));
+		}
+		if(lmax == i){
+			left_check.push_back(save.at(lmax));
+		}
+	}
+
+	for(int i = K_SIZE; i < (len - K_SIZE); i++){
+		getmax(save, i - K_SIZE + 1, i + K_SIZE, rmax, lmax);
+		if(rmax == i){
+			right_check.push_back(save.at(rmax));
+		}
+		if(lmax == i){
+			left_check.push_back(save.at(lmax));
+		}
+	}
+
+	for(int i = len - K_SIZE; i < len; i++){
+		getmax(save, i - K_SIZE + 1, len, rmax, lmax);
+		if(rmax == i){
+			right_check.push_back(save.at(rmax));
+		}
+		if(lmax == i){
+			left_check.push_back(save.at(lmax));
+		}
+	}
+
+        /*
+	int rlast = 0, llast = 0;
         getmax(save, 0, K_SIZE, rlast, llast);
 
 	right_check.push_back(save.at(rlast));
@@ -1216,6 +1254,7 @@ void getCheckPoint(vector<DrivingData> &save, vector<DrivingData> &right_check, 
                         llast = i;
                 }
         }
+	*/
 }
 
 void init(){
@@ -1274,5 +1313,6 @@ void sortByTemparature(vector<DrivingData> &right, vector<DrivingData> &left){
 }
 
 bool isNear(DrivingData& a, DrivingData& b){
+	printf("isNear = %lf;\n", UTM::distanceEarth(a.ll.lat, a.ll.lng, b.ll.lat, b.ll.lng));
 	return UTM::distanceEarth(a.ll.lat, a.ll.lng, b.ll.lat, b.ll.lng) < delta*1.5;
 }

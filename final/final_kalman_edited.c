@@ -38,7 +38,7 @@ using namespace std;
 typedef pair<double, double> Point;
 
 typedef struct {
-	float lat, lng;
+	double lat, lng;
 } LatLng;
 
 typedef double Distance;
