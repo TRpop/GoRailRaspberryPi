@@ -82,6 +82,7 @@ void update_distance_back(int, DrivingData&);
 void getCheckPoint(vector<DrivingData> &save, vector<DrivingData> &right_check, vector<DrivingData> &left_check);
 void init();
 bool isNear(DrivingData& a, DrivingData& b);
+bool isNear(vector<DrivingData>& a, DrivingData& b);
 void sortByDistance(vector<DrivingData> &object);
 void sortByRightTemparature(vector<DrivingData> &object);
 void sortByLeftTemparature(vector<DrivingData> &object);
@@ -1101,7 +1102,7 @@ bool isNear(vector<DrivingData>& a, DrivingData& b){
         vector<DrivingData>::iterator it;
         bool flag = false;
         for(it = a.begin(); it != a.end();) {
-                if (UTM::distanceEarth(it->ll.lat, it->ll.lng, b.ll.lat, b.ll.l$
+                if (UTM::distanceEarth(it->ll.lat, it->ll.lng, b.ll.lat, b.ll.lng) < delta){
                         it = a.erase(it);
                         flag = true;
                 }else{
