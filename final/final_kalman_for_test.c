@@ -92,6 +92,7 @@ void sortByFirst(vector<Point> &object);
 void sortBySecond(vector<Point> &object);
 void init();
 bool isNear(DrivingData& a, DrivingData& b);
+bool isNear(vector<DrivingData>& a, DrivingData& b);
 void sortByDistance(vector<DrivingData> &object);
 void sortByRightTemparature(vector<DrivingData> &object);
 void sortByLeftTemparature(vector<DrivingData> &object);
@@ -466,11 +467,12 @@ void alarmWakeup(int sig_num)
 
 							if(!(r_check.empty() || l_check.empty())){
 								//printf("at rl start : ");
-								if(isNear(r_check.back(), currentLoc) || isNear(l_check.back(), currentLoc)){
+								if(isNear(r_check, currentLoc) || isNear(l_check, currentLoc)){
 									while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
                                                                         //printf("\nopen valve\n");
 									printf("checked_points = [checked_points; %f %f];\n", currentLoc.ll.lat, currentLoc.ll.lng);
-                                                                        if(isNear(r_check.back(), currentLoc)){
+                                                                        /*
+									if(isNear(r_check.back(), currentLoc)){
                                                                                 //printf("r pop\n");
                                                                                 r_check.pop_back();
                                                                         }
@@ -478,6 +480,7 @@ void alarmWakeup(int sig_num)
                                                                                 //printf("l pop\n");
                                                                                 l_check.pop_back();
                                                                         }
+									*/
                                                                         cnt = 0;
 								}else{
                                                                         //go back
@@ -496,14 +499,14 @@ void alarmWakeup(int sig_num)
                                                                 }
 
 							}else if(!r_check.empty()){
-								if(isNear(r_check.back(), currentLoc)){
+								if(isNear(r_check, currentLoc)){
                                                                         //solenoid open
 									printf("checked_points = [checked_points; %f %f];\n", currentLoc.ll.lat, currentLoc.ll.lng);
                                                                         while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
                                                                         //printf("\nopen valve\n");
 
                                                                         //printf("r pop\n");
-                                                                        r_check.pop_back();
+                                                                        //r_check.pop_back();
 
                                                                         cnt = 0;
                                                                 }else{
@@ -521,14 +524,14 @@ void alarmWakeup(int sig_num)
                                                                         }
                                                                 }
 							}else if(!l_check.empty()){
-								if(isNear(l_check.back(), currentLoc)){
+								if(isNear(l_check, currentLoc)){
                                                                         //solenoid open
                                                                         while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
 									printf("checked_points = [checked_points; %f %f];\n", currentLoc.ll.lat, currentLoc.ll.lng);
                                                                         //printf("\nopen valve\n");
 
                                                                         //printf("l pop\n");
-                                                                        l_check.pop_back();
+                                                                        //l_check.pop_back();
 
                                                                         cnt = 0;
                                                                 }else{
@@ -1315,4 +1318,18 @@ void sortByTemparature(vector<DrivingData> &right, vector<DrivingData> &left){
 bool isNear(DrivingData& a, DrivingData& b){
 	printf("isNear = %lf;\n", UTM::distanceEarth(a.ll.lat, a.ll.lng, b.ll.lat, b.ll.lng));
 	return UTM::distanceEarth(a.ll.lat, a.ll.lng, b.ll.lat, b.ll.lng) < delta*1.5;
+}
+
+bool isNear(vector<DrivingData>& a, DrivingData& b){
+	vector<DrivingData>::iterator it;
+	bool flag = false;
+        for(it = a.begin(); it != a.end();) {
+		if (UTM::distanceEarth(it->ll.lat, it->ll.lng, b.ll.lat, b.ll.lng) < delta){
+			it = a.erase(it);
+			flag = true;
+		}else{
+			++it;
+		}
+        }
+	return flag;
 }
