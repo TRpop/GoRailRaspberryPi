@@ -587,7 +587,10 @@ void alarmWakeup(int sig_num)
 
                 }else if((systemState & PENDING_GPS) == PENDING_GPS) {
 			printf("lat : %f\n", gps_data.latitude);
-			if(!isnan(gps_data.latitude)) systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);;
+			if(!isnan(gps_data.latitude)){
+				init();
+				systemState = static_cast<SystemState>(OPERATING | HEADING_FRONT);
+			}
                 }
         }
 
