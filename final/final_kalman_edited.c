@@ -415,18 +415,10 @@ void alarmWakeup(int sig_num)
                                                         //////////////
 
 							if(!(r_check.empty() || l_check.empty())){
-								if(isNear(r_check.back(), currentLoc) || isNear(l_check.back(), currentLoc)){
+								if(isNear(r_check, currentLoc) || isNear(l_check, currentLoc)){
 									while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
                                                                         printf("\nopen valve\n");
 
-                                                                        if(isNear(r_check.back(), currentLoc)){
-                                                                                printf("r pop\n");
-                                                                                r_check.pop_back();
-                                                                        }
-                                                                        if(isNear(l_check.back(), currentLoc)){
-                                                                                printf("l pop\n");
-                                                                                l_check.pop_back();
-                                                                        }
                                                                         cnt = 0;
 								}else{
                                                                         //go back
@@ -445,13 +437,10 @@ void alarmWakeup(int sig_num)
                                                                 }
 
 							}else if(!r_check.empty()){
-								if(isNear(r_check.back(), currentLoc)){
+								if(isNear(r_check, currentLoc)){
                                                                         //solenoid open
                                                                         while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
                                                                         printf("\nopen valve\n");
-
-                                                                        printf("r pop\n");
-                                                                        r_check.pop_back();
 
                                                                         cnt = 0;
                                                                 }else{
@@ -469,13 +458,10 @@ void alarmWakeup(int sig_num)
                                                                         }
                                                                 }
 							}else if(!l_check.empty()){
-								if(isNear(l_check.back(), currentLoc)){
+								if(isNear(l_check, currentLoc)){
                                                                         //solenoid open
                                                                         while(OPEN_VALVE != read_raw_data(arduino, OPEN_VALVE)){usleep(DELAY_US);}
                                                                         printf("\nopen valve\n");
-
-                                                                        printf("l pop\n");
-                                                                        l_check.pop_back();
 
                                                                         cnt = 0;
                                                                 }else{
@@ -1110,3 +1096,18 @@ void sortByTemparature(vector<DrivingData> &right, vector<DrivingData> &left){
 bool isNear(DrivingData& a, DrivingData& b){
 	return UTM::distanceEarth(a.ll.lat, a.ll.lng, b.ll.lat, b.ll.lng) < delta*1.5;
 }
+
+bool isNear(vector<DrivingData>& a, DrivingData& b){
+        vector<DrivingData>::iterator it;
+        bool flag = false;
+        for(it = a.begin(); it != a.end();) {
+                if (UTM::distanceEarth(it->ll.lat, it->ll.lng, b.ll.lat, b.ll.l$
+                        it = a.erase(it);
+                        flag = true;
+                }else{
+                        ++it;
+                }
+        }
+        return flag;
+}
+
